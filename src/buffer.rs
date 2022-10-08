@@ -261,7 +261,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small (see [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small (see
+    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
     pub fn set_length(&mut self, value: u32) {
         let data = self.buffer.as_mut();
         NativeEndian::write_u32(&mut data[LENGTH], value)
@@ -271,7 +272,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small (see [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small (see
+    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
     pub fn set_message_type(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         NativeEndian::write_u16(&mut data[MESSAGE_TYPE], value)
@@ -281,7 +283,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small (see [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small (see
+    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
     pub fn set_flags(&mut self, value: u16) {
         let data = self.buffer.as_mut();
         NativeEndian::write_u16(&mut data[FLAGS], value)
@@ -291,7 +294,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small (see [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small (see
+    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
     pub fn set_sequence_number(&mut self, value: u32) {
         let data = self.buffer.as_mut();
         NativeEndian::write_u32(&mut data[SEQUENCE_NUMBER], value)
@@ -301,7 +305,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small (see [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small (see
+    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
     pub fn set_port_number(&mut self, value: u32) {
         let data = self.buffer.as_mut();
         NativeEndian::write_u32(&mut data[PORT_NUMBER], value)
@@ -313,9 +318,10 @@ impl<'a, T: AsRef<[u8]> + ?Sized> NetlinkBuffer<&'a T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small or if the `length` field in the header is
-    /// set to a value that exceeds the storage length (see
-    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small or if the `length`
+    /// field in the header is set to a value that exceeds the storage
+    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
+    /// new_checked))
     pub fn payload(&self) -> &'a [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_ref();
@@ -328,9 +334,10 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NetlinkBuffer<&'a mut T> {
     ///
     /// # Panic
     ///
-    /// This panic is the underlying storage is too small or if the `length` field in the header is
-    /// set to a value that exceeds the storage length (see
-    /// [`new_checked()`](struct.NetlinkBuffer.html#method.new_checked))
+    /// This panic is the underlying storage is too small or if the `length`
+    /// field in the header is set to a value that exceeds the storage
+    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
+    /// new_checked))
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_mut();

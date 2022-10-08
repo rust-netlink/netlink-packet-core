@@ -3,10 +3,7 @@
 use std::{error::Error, fmt};
 
 use netlink_packet_core::{
-    NetlinkDeserializable,
-    NetlinkHeader,
-    NetlinkMessage,
-    NetlinkPayload,
+    NetlinkDeserializable, NetlinkHeader, NetlinkMessage, NetlinkPayload,
     NetlinkSerializable,
 };
 
@@ -49,7 +46,10 @@ impl fmt::Display for DeserializeError {
 impl NetlinkDeserializable for PingPongMessage {
     type Error = DeserializeError;
 
-    fn deserialize(header: &NetlinkHeader, payload: &[u8]) -> Result<Self, Self::Error> {
+    fn deserialize(
+        header: &NetlinkHeader,
+        payload: &[u8],
+    ) -> Result<Self, Self::Error> {
         match header.message_type {
             PING_MESSAGE => Ok(PingPongMessage::Ping(payload.to_vec())),
             PONG_MESSAGE => Ok(PingPongMessage::Pong(payload.to_vec())),
@@ -71,7 +71,9 @@ impl NetlinkSerializable for PingPongMessage {
 
     fn buffer_len(&self) -> usize {
         match self {
-            PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => vec.len(),
+            PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
+                vec.len()
+            }
         }
     }
 
@@ -112,14 +114,17 @@ fn main() {
     packet.serialize(&mut buf[..]);
 
     // Deserialize the packet
-    let deserialized_packet = NetlinkMessage::<PingPongMessage>::deserialize(&buf)
-        .expect("Failed to deserialize message");
+    let deserialized_packet =
+        NetlinkMessage::<PingPongMessage>::deserialize(&buf)
+            .expect("Failed to deserialize message");
 
     // Normally, the deserialized packet should be exactly the same
     // than the serialized one.
     assert_eq!(deserialized_packet, packet);
 
     // This should print:
-    // NetlinkMessage { header: NetlinkHeader { length: 20, message_type: 18, flags: 0, sequence_number: 0, port_number: 0 }, payload: InnerMessage(Ping([0, 1, 2, 3])) }
+    // NetlinkMessage { header: NetlinkHeader { length: 20, message_type: 18,
+    // flags: 0, sequence_number: 0, port_number: 0 }, payload:
+    // InnerMessage(Ping([0, 1, 2, 3])) }
     println!("{:?}", packet);
 }

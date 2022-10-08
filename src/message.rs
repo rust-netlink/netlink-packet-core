@@ -5,17 +5,9 @@ use std::fmt::Debug;
 
 use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    AckMessage,
-    DecodeError,
-    Emitable,
-    ErrorBuffer,
-    ErrorMessage,
-    NetlinkBuffer,
-    NetlinkDeserializable,
-    NetlinkHeader,
-    NetlinkPayload,
-    NetlinkSerializable,
-    Parseable,
+    AckMessage, DecodeError, Emitable, ErrorBuffer, ErrorMessage,
+    NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
+    NetlinkSerializable, Parseable,
 };
 
 /// Represent a netlink message.
@@ -71,14 +63,17 @@ where
         self.emit(buffer)
     }
 
-    /// Ensure the header (`NetlinkHeader`) is consistent with the payload (`NetlinkPayload`):
+    /// Ensure the header (`NetlinkHeader`) is consistent with the payload
+    /// (`NetlinkPayload`):
     ///
     /// - compute the payload length and set the header's length field
-    /// - check the payload type and set the header's message type field accordingly
+    /// - check the payload type and set the header's message type field
+    ///   accordingly
     ///
-    /// If you are not 100% sure the header is correct, this method should be called before calling
-    /// [`Emitable::emit()`](trait.Emitable.html#tymethod.emit), as it could panic if the header is
-    /// inconsistent with the rest of the message.
+    /// If you are not 100% sure the header is correct, this method should be
+    /// called before calling [`Emitable::emit()`](trait.Emitable.html#
+    /// tymethod.emit), as it could panic if the header is inconsistent with
+    /// the rest of the message.
     pub fn finalize(&mut self) {
         self.header.length = self.buffer_len() as u32;
         self.header.message_type = self.payload.message_type();
@@ -93,15 +88,17 @@ where
     fn parse(buf: &NetlinkBuffer<&'buffer B>) -> Result<Self, DecodeError> {
         use self::NetlinkPayload::*;
 
-        let header = <NetlinkHeader as Parseable<NetlinkBuffer<&'buffer B>>>::parse(buf)
-            .context("failed to parse netlink header")?;
+        let header =
+            <NetlinkHeader as Parseable<NetlinkBuffer<&'buffer B>>>::parse(buf)
+                .context("failed to parse netlink header")?;
 
         let bytes = buf.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
-                let buf =
-                    ErrorBuffer::new_checked(&bytes).context("failed to parse NLMSG_ERROR")?;
-                let msg = ErrorMessage::parse(&buf).context("failed to parse NLMSG_ERROR")?;
+                let buf = ErrorBuffer::new_checked(&bytes)
+                    .context("failed to parse NLMSG_ERROR")?;
+                let msg = ErrorMessage::parse(&buf)
+                    .context("failed to parse NLMSG_ERROR")?;
                 if msg.code >= 0 {
                     Ack(msg as AckMessage)
                 } else {
@@ -112,10 +109,11 @@ where
             NLMSG_DONE => Done,
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
             message_type => {
-                let inner_msg = I::deserialize(&header, bytes).context(format!(
-                    "Failed to parse message with type {}",
-                    message_type
-                ))?;
+                let inner_msg =
+                    I::deserialize(&header, bytes).context(format!(
+                        "Failed to parse message with type {}",
+                        message_type
+                    ))?;
                 InnerMessage(inner_msg)
             }
         };
@@ -146,7 +144,8 @@ where
 
         self.header.emit(buffer);
 
-        let buffer = &mut buffer[self.header.buffer_len()..self.header.length as usize];
+        let buffer =
+            &mut buffer[self.header.buffer_len()..self.header.length as usize];
         match self.payload {
             Noop | Done => {}
             Overrun(ref bytes) => buffer.copy_from_slice(bytes),
