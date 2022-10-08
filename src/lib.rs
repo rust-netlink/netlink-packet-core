@@ -29,8 +29,9 @@
 //! `netlink-packet-route`.
 //!
 //! ```rust
-//! use netlink_packet_core::{NetlinkHeader, NetlinkMessage, NLM_F_DUMP, NLM_F_REQUEST};
-//! use netlink_packet_route::{LinkMessage, RtnlMessage};
+//! use netlink_packet_core::{NLM_F_DUMP, NLM_F_REQUEST};
+//! use netlink_packet_route::{LinkMessage, RtnlMessage, NetlinkMessage,
+//! NetlinkHeader};
 //!
 //! // Create the netlink message, that contains the rtnetlink
 //! // message

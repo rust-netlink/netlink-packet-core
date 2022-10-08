@@ -8,7 +8,10 @@ pub trait NetlinkDeserializable: Sized {
     type Error: Error + Send + Sync + 'static;
 
     /// Deserialize the given buffer into `Self`.
-    fn deserialize(header: &NetlinkHeader, payload: &[u8]) -> Result<Self, Self::Error>;
+    fn deserialize(
+        header: &NetlinkHeader,
+        payload: &[u8],
+    ) -> Result<Self, Self::Error>;
 }
 
 pub trait NetlinkSerializable {
@@ -23,13 +26,15 @@ pub trait NetlinkSerializable {
     /// which is why `buffer_len` is needed.
     fn buffer_len(&self) -> usize;
 
-    /// Serialize this types and write the serialized data into the given buffer.
-    /// `buffer`'s length is exactly `InnerMessage::buffer_len()`.
-    /// It means that if `InnerMessage::buffer_len()` is buggy and does not return the appropriate length,
-    /// bad things can happen:
+    /// Serialize this types and write the serialized data into the given
+    /// buffer. `buffer`'s length is exactly `InnerMessage::buffer_len()`.
+    /// It means that if `InnerMessage::buffer_len()` is buggy and does not
+    /// return the appropriate length, bad things can happen:
     ///
-    /// - if `buffer_len()` returns a value _smaller than the actual data_, `emit()` may panics
-    /// - if `buffer_len()` returns a value _bigger than the actual data_, the buffer will contain garbage
+    /// - if `buffer_len()` returns a value _smaller than the actual data_,
+    ///   `emit()` may panics
+    /// - if `buffer_len()` returns a value _bigger than the actual data_, the
+    ///   buffer will contain garbage
     ///
     /// # Panic
     ///

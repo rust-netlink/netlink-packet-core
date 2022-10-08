@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-use crate::{buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable};
+use crate::{
+    buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable,
+};
 
-/// A Netlink header representation. A netlink header has the following structure:
+/// A Netlink header representation. A netlink header has the following
+/// structure:
 ///
 /// ```no_rust
 /// 0                8                16              24               32
@@ -21,7 +24,8 @@ pub struct NetlinkHeader {
     /// Length of the netlink packet, including the header and the payload
     pub length: u32,
 
-    /// NetlinkMessage type. The meaning of this field depends on the netlink protocol family in use.
+    /// NetlinkMessage type. The meaning of this field depends on the netlink
+    /// protocol family in use.
     pub message_type: u16,
 
     /// Flags. It should be set to one of the `NLM_F_*` constants.
@@ -49,7 +53,9 @@ impl Emitable for NetlinkHeader {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> Parseable<NetlinkBuffer<&'a T>> for NetlinkHeader {
+impl<'a, T: AsRef<[u8]> + ?Sized> Parseable<NetlinkBuffer<&'a T>>
+    for NetlinkHeader
+{
     fn parse(buf: &NetlinkBuffer<&'a T>) -> Result<NetlinkHeader, DecodeError> {
         Ok(NetlinkHeader {
             length: buf.length(),
@@ -83,9 +89,10 @@ mod tests {
 
     #[test]
     fn repr_parse() {
-        let repr =
-            NetlinkHeader::parse(&NetlinkBuffer::new_checked(&IP_LINK_SHOW_PKT[..]).unwrap())
-                .unwrap();
+        let repr = NetlinkHeader::parse(
+            &NetlinkBuffer::new_checked(&IP_LINK_SHOW_PKT[..]).unwrap(),
+        )
+        .unwrap();
         assert_eq!(repr.length, 40);
         assert_eq!(repr.message_type, RTM_GETLINK);
         assert_eq!(repr.sequence_number, 1_526_271_540);

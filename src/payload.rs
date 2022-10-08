@@ -6,8 +6,8 @@ use crate::{AckMessage, ErrorMessage, NetlinkSerializable};
 
 /// The message is ignored.
 pub const NLMSG_NOOP: u16 = 1;
-/// The message signals an error and the payload contains a nlmsgerr structure. This can be looked
-/// at as a NACK and typically it is from FEC to CPC.
+/// The message signals an error and the payload contains a nlmsgerr structure.
+/// This can be looked at as a NACK and typically it is from FEC to CPC.
 pub const NLMSG_ERROR: u16 = 2;
 /// The message terminates a multipart message.
 /// Data lost

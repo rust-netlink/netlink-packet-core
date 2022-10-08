@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-use netlink_packet_core::{NetlinkHeader, NetlinkMessage, NLM_F_DUMP, NLM_F_REQUEST};
-use netlink_packet_route::rtnl::{LinkMessage, RtnlMessage};
+use netlink_packet_core::{NLM_F_DUMP, NLM_F_REQUEST};
+use netlink_packet_route::{
+    rtnl::{LinkMessage, RtnlMessage},
+    NetlinkMessage,
+};
 
 fn main() {
     // Create the netlink message, that contains the rtnetlink
     // message
-    let mut packet = NetlinkMessage {
-        header: NetlinkHeader {
-            sequence_number: 1,
-            flags: NLM_F_DUMP | NLM_F_REQUEST,
-            ..Default::default()
-        },
-        payload: RtnlMessage::GetLink(LinkMessage::default()).into(),
-    };
+    let mut packet =
+        NetlinkMessage::from(RtnlMessage::GetLink(LinkMessage::default()));
 
     // Set a few fields in the packet's header
     packet.header.flags = NLM_F_DUMP | NLM_F_REQUEST;
@@ -33,8 +30,8 @@ fn main() {
     packet.serialize(&mut buf[..]);
 
     // Deserialize the packet
-    let deserialized_packet =
-        NetlinkMessage::<RtnlMessage>::deserialize(&buf).expect("Failed to deserialize message");
+    let deserialized_packet = NetlinkMessage::<RtnlMessage>::deserialize(&buf)
+        .expect("Failed to deserialize message");
 
     // Normally, the deserialized packet should be exactly the same
     // than the serialized one.
