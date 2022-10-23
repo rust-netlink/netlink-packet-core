@@ -3,8 +3,9 @@
 use std::{fmt, io, mem::size_of};
 
 use byteorder::{ByteOrder, NativeEndian};
+use netlink_packet_utils::DecodeError;
 
-use crate::{DecodeError, Emitable, Field, Parseable, Rest};
+use crate::{Emitable, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
