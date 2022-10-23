@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 
-use anyhow::Context;
 use std::fmt::Debug;
+
+use anyhow::Context;
+use netlink_packet_utils::DecodeError;
 
 use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    AckMessage, DecodeError, Emitable, ErrorBuffer, ErrorMessage,
-    NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
-    NetlinkSerializable, Parseable,
+    AckMessage, Emitable, ErrorBuffer, ErrorMessage, NetlinkBuffer,
+    NetlinkDeserializable, NetlinkHeader, NetlinkPayload, NetlinkSerializable,
+    Parseable,
 };
 
 /// Represent a netlink message.

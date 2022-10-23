@@ -265,6 +265,5 @@ pub use self::message::*;
 pub mod constants;
 pub use self::constants::*;
 
-pub use self::utils::errors::*;
 pub(crate) use self::utils::traits::*;
 pub(crate) use netlink_packet_utils as utils;
