@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 use byteorder::{ByteOrder, NativeEndian};
+use netlink_packet_utils::DecodeError;
 
-use crate::{DecodeError, Field, Rest};
+use crate::{Field, Rest};
 
 const LENGTH: Field = 0..4;
 const MESSAGE_TYPE: Field = 4..6;

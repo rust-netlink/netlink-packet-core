@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-use crate::{
-    buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable,
-};
+use netlink_packet_utils::DecodeError;
+
+use crate::{buffer::NETLINK_HEADER_LEN, Emitable, NetlinkBuffer, Parseable};
 
 /// A Netlink header representation. A netlink header has the following
 /// structure:
