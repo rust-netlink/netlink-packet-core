@@ -10,15 +10,6 @@ use crate::{
     NetlinkSerializable, Parseable,
 };
 
-/// Represent a Netlink event
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum NetlinkEvent<M> {
-    /// An actual message was received from Netlink
-    Message(M),
-    /// The socket receive buffer filled up
-    Overrun,
-}
-
 /// Represent a netlink message.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NetlinkMessage<I> {
