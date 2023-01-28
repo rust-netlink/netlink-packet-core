@@ -12,6 +12,7 @@ const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[non_exhaustive]
 pub struct ErrorBuffer<T> {
     buffer: T,
 }
@@ -77,6 +78,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ErrorBuffer<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ErrorMessage {
     pub code: i32,
     pub header: Vec<u8>,
