@@ -111,11 +111,9 @@ where
             NLMSG_DONE => Done,
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
             message_type => {
-                let inner_msg =
-                    I::deserialize(&header, bytes).context(format!(
-                        "Failed to parse message with type {}",
-                        message_type
-                    ))?;
+                let inner_msg = I::deserialize(&header, bytes).context(
+                    format!("Failed to parse message with type {message_type}"),
+                )?;
                 InnerMessage(inner_msg)
             }
         };

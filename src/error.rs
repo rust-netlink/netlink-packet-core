@@ -36,8 +36,8 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
         let len = self.buffer.as_ref().len();
         if len < ERROR_HEADER_LEN {
             Err(format!(
-                "invalid ErrorBuffer: length is {} but ErrorBuffer are at least {} bytes",
-                len, ERROR_HEADER_LEN
+                "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
+                at least {ERROR_HEADER_LEN} bytes"
             )
             .into())
         } else {

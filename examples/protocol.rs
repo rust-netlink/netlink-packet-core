@@ -126,5 +126,5 @@ fn main() {
     // NetlinkMessage { header: NetlinkHeader { length: 20, message_type: 18,
     // flags: 0, sequence_number: 0, port_number: 0 }, payload:
     // InnerMessage(Ping([0, 1, 2, 3])) }
-    println!("{:?}", packet);
+    println!("{packet:?}");
 }

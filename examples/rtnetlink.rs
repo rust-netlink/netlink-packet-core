@@ -37,5 +37,5 @@ fn main() {
     // than the serialized one.
     assert_eq!(deserialized_packet, packet);
 
-    println!("{:?}", packet);
+    println!("{packet:?}");
 }
