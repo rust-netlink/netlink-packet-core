@@ -16,6 +16,7 @@ pub const NLMSG_OVERRUN: u16 = 4;
 pub const NLMSG_ALIGNTO: u16 = 4;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[non_exhaustive]
 pub enum NetlinkPayload<I> {
     Done,
     Error(ErrorMessage),
