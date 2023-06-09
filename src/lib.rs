@@ -244,6 +244,9 @@ pub(crate) type Field = Range<usize>;
 /// Represent a field that starts at a given index in a packet
 pub(crate) type Rest = RangeFrom<usize>;
 
+pub mod done;
+pub use self::done::*;
+
 pub mod error;
 pub use self::error::*;
 

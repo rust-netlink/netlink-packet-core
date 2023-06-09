@@ -7,9 +7,9 @@ use netlink_packet_utils::DecodeError;
 
 use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    AckMessage, Emitable, ErrorBuffer, ErrorMessage, NetlinkBuffer,
-    NetlinkDeserializable, NetlinkHeader, NetlinkPayload, NetlinkSerializable,
-    Parseable,
+    AckMessage, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
+    NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
+    NetlinkSerializable, Parseable,
 };
 
 /// Represent a netlink message.
@@ -98,9 +98,8 @@ where
         let bytes = buf.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
-                let buf = ErrorBuffer::new_checked(&bytes)
-                    .context("failed to parse NLMSG_ERROR")?;
-                let msg = ErrorMessage::parse(&buf)
+                let msg = ErrorBuffer::new_checked(&bytes)
+                    .and_then(|buf| ErrorMessage::parse(&buf))
                     .context("failed to parse NLMSG_ERROR")?;
                 if msg.code >= 0 {
                     Ack(msg as AckMessage)
@@ -109,7 +108,12 @@ where
                 }
             }
             NLMSG_NOOP => Noop,
-            NLMSG_DONE => Done,
+            NLMSG_DONE => {
+                let msg = DoneBuffer::new_checked(&bytes)
+                    .and_then(|buf| DoneMessage::parse(&buf))
+                    .context("failed to parse NLMSG_DONE")?;
+                Done(msg)
+            }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
             message_type => {
                 let inner_msg = I::deserialize(&header, bytes).context(
@@ -130,7 +134,8 @@ where
         use self::NetlinkPayload::*;
 
         let payload_len = match self.payload {
-            Noop | Done => 0,
+            Noop => 0,
+            Done(ref msg) => msg.buffer_len(),
             Overrun(ref bytes) => bytes.len(),
             Error(ref msg) => msg.buffer_len(),
             Ack(ref msg) => msg.buffer_len(),
@@ -148,7 +153,8 @@ where
         let buffer =
             &mut buffer[self.header.buffer_len()..self.header.length as usize];
         match self.payload {
-            Noop | Done => {}
+            Noop => {}
+            Done(ref msg) => msg.emit(buffer),
             Overrun(ref bytes) => buffer.copy_from_slice(bytes),
             Error(ref msg) => msg.emit(buffer),
             Ack(ref msg) => msg.emit(buffer),
@@ -166,5 +172,71 @@ where
             header: NetlinkHeader::default(),
             payload: inner_message.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::{convert::Infallible, mem::size_of};
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct FakeNetlinkInnerMessage;
+
+    impl NetlinkSerializable for FakeNetlinkInnerMessage {
+        fn message_type(&self) -> u16 {
+            unimplemented!("unused by tests")
+        }
+
+        fn buffer_len(&self) -> usize {
+            unimplemented!("unused by tests")
+        }
+
+        fn serialize(&self, _buffer: &mut [u8]) {
+            unimplemented!("unused by tests")
+        }
+    }
+
+    impl NetlinkDeserializable for FakeNetlinkInnerMessage {
+        type Error = Infallible;
+
+        fn deserialize(
+            _header: &NetlinkHeader,
+            _payload: &[u8],
+        ) -> Result<Self, Self::Error> {
+            unimplemented!("unused by tests")
+        }
+    }
+
+    #[test]
+    fn test_done() {
+        let header = NetlinkHeader::default();
+        let mut done_msg = DoneMessage::default();
+        done_msg.code = 0;
+        done_msg.extended_ack = vec![6, 7, 8, 9];
+        let mut want = NetlinkMessage::new(
+            header,
+            NetlinkPayload::<FakeNetlinkInnerMessage>::Done(done_msg.clone()),
+        );
+        want.finalize();
+
+        let len = want.buffer_len();
+        assert_eq!(
+            len,
+            header.buffer_len()
+                + size_of::<i32>()
+                + done_msg.extended_ack.len()
+        );
+
+        let mut buf = vec![1; len];
+        want.emit(&mut buf);
+
+        let done_buf = DoneBuffer::new(&buf[header.buffer_len()..]);
+        assert_eq!(done_buf.code(), done_msg.code);
+        assert_eq!(done_buf.extended_ack(), &done_msg.extended_ack);
+
+        let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        assert_eq!(got, want);
     }
 }
