@@ -114,9 +114,10 @@ mod tests {
 
     #[test]
     fn serialize_and_parse() {
-        let mut expected = DoneMessage::default();
-        expected.code = 5;
-        expected.extended_ack = vec![1, 2, 3];
+        let expected = DoneMessage {
+            code: 5,
+            extended_ack: vec![1, 2, 3],
+        };
 
         let len = expected.buffer_len();
         assert_eq!(len, size_of::<i32>() + expected.extended_ack.len());

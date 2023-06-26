@@ -212,9 +212,10 @@ mod tests {
     #[test]
     fn test_done() {
         let header = NetlinkHeader::default();
-        let mut done_msg = DoneMessage::default();
-        done_msg.code = 0;
-        done_msg.extended_ack = vec![6, 7, 8, 9];
+        let done_msg = DoneMessage {
+            code: 0,
+            extended_ack: vec![6, 7, 8, 9],
+        };
         let mut want = NetlinkMessage::new(
             header,
             NetlinkPayload::<FakeNetlinkInnerMessage>::Done(done_msg.clone()),
