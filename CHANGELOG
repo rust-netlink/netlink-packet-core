@@ -1,4 +1,15 @@
 # Changelog
+## [0.6.0] - 2023-06-26
+### Breaking changes
+ - `NetlinkPayload::Done` changed to `NetlinkPayload::Done(DoneMessage)`.
+   (0c75fb5)
+
+### New features
+ - Support full done message. (0c75fb5)
+
+### Bug fixes
+ - N/A
+
 ## [0.5.0] - 2023-01-28
 ### Breaking changes
  - All public struct and enum are marked as `non_exhaustive`. Please check
