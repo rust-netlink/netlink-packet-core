@@ -7,7 +7,7 @@ use netlink_packet_utils::DecodeError;
 
 use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    AckMessage, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
+    DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
     NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
     NetlinkSerializable, Parseable,
 };
@@ -101,11 +101,7 @@ where
                 let msg = ErrorBuffer::new_checked(&bytes)
                     .and_then(|buf| ErrorMessage::parse(&buf))
                     .context("failed to parse NLMSG_ERROR")?;
-                if msg.code >= 0 {
-                    Ack(msg as AckMessage)
-                } else {
-                    Error(msg)
-                }
+                Error(msg)
             }
             NLMSG_NOOP => Noop,
             NLMSG_DONE => {
@@ -138,7 +134,6 @@ where
             Done(ref msg) => msg.buffer_len(),
             Overrun(ref bytes) => bytes.len(),
             Error(ref msg) => msg.buffer_len(),
-            Ack(ref msg) => msg.buffer_len(),
             InnerMessage(ref msg) => msg.buffer_len(),
         };
 
@@ -157,7 +152,6 @@ where
             Done(ref msg) => msg.emit(buffer),
             Overrun(ref bytes) => buffer.copy_from_slice(bytes),
             Error(ref msg) => msg.emit(buffer),
-            Ack(ref msg) => msg.emit(buffer),
             InnerMessage(ref msg) => msg.serialize(buffer),
         }
     }
@@ -179,7 +173,7 @@ where
 mod tests {
     use super::*;
 
-    use std::{convert::Infallible, mem::size_of};
+    use std::{convert::Infallible, mem::size_of, num::NonZeroI32};
 
     #[derive(Clone, Debug, Default, PartialEq)]
     struct FakeNetlinkInnerMessage;
@@ -236,6 +230,36 @@ mod tests {
         let done_buf = DoneBuffer::new(&buf[header.buffer_len()..]);
         assert_eq!(done_buf.code(), done_msg.code);
         assert_eq!(done_buf.extended_ack(), &done_msg.extended_ack);
+
+        let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_error() {
+        // SAFETY: value is non-zero.
+        const ERROR_CODE: NonZeroI32 =
+            unsafe { NonZeroI32::new_unchecked(-8765) };
+
+        let header = NetlinkHeader::default();
+        let error_msg = ErrorMessage {
+            code: Some(ERROR_CODE),
+            header: vec![],
+        };
+        let mut want = NetlinkMessage::new(
+            header,
+            NetlinkPayload::<FakeNetlinkInnerMessage>::Error(error_msg.clone()),
+        );
+        want.finalize();
+
+        let len = want.buffer_len();
+        assert_eq!(len, header.buffer_len() + error_msg.buffer_len());
+
+        let mut buf = vec![1; len];
+        want.emit(&mut buf);
+
+        let error_buf = ErrorBuffer::new(&buf[header.buffer_len()..]);
+        assert_eq!(error_buf.code(), error_msg.code);
 
         let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
         assert_eq!(got, want);
