@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use crate::{DoneMessage, ErrorMessage, NetlinkSerializable};
+use crate::{AckMessage, DoneMessage, ErrorMessage, NetlinkSerializable};
 
 /// The message is ignored.
 pub const NLMSG_NOOP: u16 = 1;
@@ -20,6 +20,7 @@ pub const NLMSG_ALIGNTO: u16 = 4;
 pub enum NetlinkPayload<I> {
     Done(DoneMessage),
     Error(ErrorMessage),
+    Ack(AckMessage),
     Noop,
     Overrun(Vec<u8>),
     InnerMessage(I),
@@ -32,7 +33,7 @@ where
     pub fn message_type(&self) -> u16 {
         match self {
             NetlinkPayload::Done(_) => NLMSG_DONE,
-            NetlinkPayload::Error(_) => NLMSG_ERROR,
+            NetlinkPayload::Error(_) | NetlinkPayload::Ack(_) => NLMSG_ERROR,
             NetlinkPayload::Noop => NLMSG_NOOP,
             NetlinkPayload::Overrun(_) => NLMSG_OVERRUN,
             NetlinkPayload::InnerMessage(message) => message.message_type(),
