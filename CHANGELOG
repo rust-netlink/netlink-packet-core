@@ -1,4 +1,15 @@
 # Changelog
+## [0.7.0] - 2023-07-09
+### Breaking changes
+ - `NetlinkPayload::Ack` removed and replaced by `NetlinkPayload::Error` where
+    `ErrorMessage.code` is set to None. (52732b3)
+
+### New features
+ - Derive `Default` for `ErrorMessage`. (3514766)
+
+### Bug fixes
+ - N/A
+
 ## [0.6.0] - 2023-06-26
 ### Breaking changes
  - `NetlinkPayload::Done` changed to `NetlinkPayload::Done(DoneMessage)`.
