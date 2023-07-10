@@ -137,6 +137,11 @@ impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<ErrorBuffer<&'buffer T>>
 }
 
 impl ErrorMessage {
+    /// Return true if specified error message is a acknowledgment with no error.
+    pub fn is_ack(&self) -> bool {
+        self.code.is_none()
+    }
+
     /// Returns the raw error code.
     pub fn raw_code(&self) -> i32 {
         self.code.map_or(0, NonZeroI32::get)
