@@ -78,7 +78,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DoneBuffer<T> {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct DoneMessage {
     pub code: i32,
     pub extended_ack: Vec<u8>,
