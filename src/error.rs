@@ -88,7 +88,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ErrorBuffer<T> {
 ///
 /// [RFC 3549 section 2.3.2.2]: https://datatracker.ietf.org/doc/html/rfc3549#section-2.3.2.2
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ErrorMessage {
     /// The error code.
     ///
