@@ -9,7 +9,7 @@ use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
     DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
     NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
-    NetlinkSerializable, Parseable,
+    NetlinkSerializable, Parseable, NLM_F_CAPPED,
 };
 
 /// Represent a netlink message.
@@ -98,9 +98,12 @@ where
         let bytes = buf.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
-                let msg = ErrorBuffer::new_checked(&bytes)
-                    .and_then(|buf| ErrorMessage::parse(&buf))
-                    .context("failed to parse NLMSG_ERROR")?;
+                let msg = ErrorBuffer::new_checked(
+                    &bytes,
+                    header.flags & NLM_F_CAPPED == 0,
+                )
+                .and_then(|buf| ErrorMessage::parse(&buf))
+                .context("failed to parse NLMSG_ERROR")?;
                 Error(msg)
             }
             NLMSG_NOOP => Noop,
@@ -172,8 +175,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::*;
 
     use std::{convert::Infallible, mem::size_of, num::NonZeroI32};
+
+    const RTM_GETLINK: u16 = 18;
 
     #[derive(Clone, Debug, Default, PartialEq)]
     struct FakeNetlinkInnerMessage;
@@ -241,10 +247,19 @@ mod tests {
         const ERROR_CODE: NonZeroI32 =
             unsafe { NonZeroI32::new_unchecked(-8765) };
 
-        let header = NetlinkHeader::default();
+        let mut header = NetlinkHeader::default();
+        header.flags |= NLM_F_CAPPED;
         let error_msg = ErrorMessage {
             code: Some(ERROR_CODE),
-            header: vec![],
+            request_header: NetlinkHeader {
+                length: 40,
+                message_type: RTM_GETLINK,
+                sequence_number: 1_526_271_540,
+                flags: NLM_F_ROOT | NLM_F_REQUEST | NLM_F_MATCH,
+                port_number: 0,
+            },
+            request_payload: None,
+            extended_ack: vec![],
         };
         let mut want = NetlinkMessage::new(
             header,
@@ -258,7 +273,7 @@ mod tests {
         let mut buf = vec![1; len];
         want.emit(&mut buf);
 
-        let error_buf = ErrorBuffer::new(&buf[header.buffer_len()..]);
+        let error_buf = ErrorBuffer::new(&buf[header.buffer_len()..], false);
         assert_eq!(error_buf.code(), error_msg.code);
 
         let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
