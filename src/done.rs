@@ -100,6 +100,7 @@ impl Emitable for DoneMessage {
 impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<DoneBuffer<&'buffer T>>
     for DoneMessage
 {
+    type Error = DecodeError;
     fn parse(buf: &DoneBuffer<&'buffer T>) -> Result<DoneMessage, DecodeError> {
         Ok(DoneMessage {
             code: buf.code(),

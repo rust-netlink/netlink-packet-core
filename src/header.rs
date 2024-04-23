@@ -57,6 +57,7 @@ impl Emitable for NetlinkHeader {
 impl<'a, T: AsRef<[u8]> + ?Sized> Parseable<NetlinkBuffer<&'a T>>
     for NetlinkHeader
 {
+    type Error = DecodeError;
     fn parse(buf: &NetlinkBuffer<&'a T>) -> Result<NetlinkHeader, DecodeError> {
         Ok(NetlinkHeader {
             length: buf.length(),
