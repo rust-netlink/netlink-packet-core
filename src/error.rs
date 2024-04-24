@@ -118,6 +118,7 @@ impl Emitable for ErrorMessage {
 impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<ErrorBuffer<&'buffer T>>
     for ErrorMessage
 {
+    type Error = DecodeError;
     fn parse(
         buf: &ErrorBuffer<&'buffer T>,
     ) -> Result<ErrorMessage, DecodeError> {

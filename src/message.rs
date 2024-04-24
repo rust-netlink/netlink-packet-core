@@ -37,6 +37,7 @@ impl<I> NetlinkMessage<I> {
 impl<I> NetlinkMessage<I>
 where
     I: NetlinkDeserializable,
+    I::Error: Into<DecodeError>,
 {
     /// Parse the given buffer as a netlink message
     pub fn deserialize(buffer: &[u8]) -> Result<Self, DecodeError> {
@@ -87,7 +88,9 @@ impl<'buffer, B, I> Parseable<NetlinkBuffer<&'buffer B>> for NetlinkMessage<I>
 where
     B: AsRef<[u8]> + 'buffer,
     I: NetlinkDeserializable,
+    I::Error:Into<DecodeError>,
 {
+    type Error = DecodeError;
     fn parse(buf: &NetlinkBuffer<&'buffer B>) -> Result<Self, DecodeError> {
         use self::NetlinkPayload::*;
 
@@ -100,21 +103,23 @@ where
             NLMSG_ERROR => {
                 let msg = ErrorBuffer::new_checked(&bytes)
                     .and_then(|buf| ErrorMessage::parse(&buf))
-                    .context("failed to parse NLMSG_ERROR")?;
+                    .map_err(|err|DecodeError::FailedToParseNlMsgError(err.into()))?;
                 Error(msg)
             }
             NLMSG_NOOP => Noop,
             NLMSG_DONE => {
                 let msg = DoneBuffer::new_checked(&bytes)
                     .and_then(|buf| DoneMessage::parse(&buf))
-                    .context("failed to parse NLMSG_DONE")?;
+                    .map_err(|err| DecodeError::FailedToParseNlMsgDone(err.into()))?;
                 Done(msg)
             }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
             message_type => {
-                let inner_msg = I::deserialize(&header, bytes).context(
-                    format!("Failed to parse message with type {message_type}"),
-                )?;
+                let inner_msg = I::deserialize(&header, bytes)
+                    .map_err(|err| DecodeError::FailedToParseMessageWithType {
+                        message_type,
+                        source: Box::new(err.into()),
+                    })?;
                 InnerMessage(inner_msg)
             }
         };
