@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use netlink_packet_utils::DecodeError;
-
+use crate::CoreError;
 use crate::{buffer::NETLINK_HEADER_LEN, Emitable, NetlinkBuffer, Parseable};
 
 /// A Netlink header representation. A netlink header has the following
@@ -57,7 +56,9 @@ impl Emitable for NetlinkHeader {
 impl<'a, T: AsRef<[u8]> + ?Sized> Parseable<NetlinkBuffer<&'a T>>
     for NetlinkHeader
 {
-    fn parse(buf: &NetlinkBuffer<&'a T>) -> Result<NetlinkHeader, DecodeError> {
+    type Error = CoreError;
+
+    fn parse(buf: &NetlinkBuffer<&'a T>) -> Result<NetlinkHeader, Self::Error> {
         Ok(NetlinkHeader {
             length: buf.length(),
             message_type: buf.message_type(),

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
-use crate::{Field, Rest};
+use crate::{CoreError, Field, Rest};
 
 const LENGTH: Field = 0..4;
 const MESSAGE_TYPE: Field = 4..6;
@@ -156,33 +155,20 @@ impl<T: AsRef<[u8]>> NetlinkBuffer<T> {
     ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
     /// assert!(NetlinkBuffer::new_checked(&BYTES[..]).is_err());
     /// ```
-    pub fn new_checked(buffer: T) -> Result<NetlinkBuffer<T>, DecodeError> {
+    pub fn new_checked(buffer: T) -> Result<NetlinkBuffer<T>, CoreError> {
         let packet = Self::new(buffer);
         packet.check_buffer_length()?;
         Ok(packet)
     }
 
-    fn check_buffer_length(&self) -> Result<(), DecodeError> {
+    fn check_buffer_length(&self) -> Result<(), CoreError> {
         let len = self.buffer.as_ref().len();
         if len < PORT_NUMBER.end {
-            Err(format!(
-                "invalid netlink buffer: length is {} but netlink packets are at least {} bytes",
-                len, PORT_NUMBER.end
-            )
-            .into())
+            Err(CoreError::PacketTooShort { received: len, expected: PORT_NUMBER.end })
         } else if len < self.length() as usize {
-            Err(format!(
-                "invalid netlink buffer: length field says {} the buffer is {} bytes long",
-                self.length(),
-                len
-            )
-            .into())
+            Err(CoreError::NonmatchingLength { expected: self.length(), actual: len })
         } else if (self.length() as usize) < PORT_NUMBER.end {
-            Err(format!(
-                "invalid netlink buffer: length field says {} but netlink packets are at least {} bytes",
-                self.length(),
-                len
-            ).into())
+            Err(CoreError::InvalidLength { given: self.length(), at_least: len })
         } else {
             Ok(())
         }

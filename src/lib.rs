@@ -270,3 +270,51 @@ pub use self::constants::*;
 
 pub(crate) use self::utils::traits::*;
 pub(crate) use netlink_packet_utils as utils;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum CoreError {
+    #[error("invalid netlink buffer: length is {received} but netlink packets are at least {expected} bytes")]
+    PacketTooShort { received: usize, expected: usize },
+
+    #[error("invalid netlink buffer: length field says {expected} but the buffer is {actual} bytes long")]
+    NonmatchingLength { expected: u32, actual: usize },
+
+    #[error("invalid netlink buffer: length field says {given} but netlink packets are at least {at_least} bytes")]
+    InvalidLength { given: u32, at_least: usize },
+
+    #[error(
+        "invalid ErrorBuffer: length is {received}, expected at least 4 bytes"
+    )]
+    InvalidErrorBuffer { received: usize },
+
+    #[error(
+        "invalid DoneBuffer: length is {received}, expected at least 4 bytes"
+    )]
+    InvalidDoneBuffer { received: usize },
+
+    #[error("invalid Netlink header")]
+    InvalidHeader {
+        #[source]
+        due_to: Box<Self>,
+    },
+
+    #[error("invalid Netlink message of type NLMSG_ERROR")]
+    InvalidErrorMsg {
+        #[source]
+        due_to: Box<Self>,
+    },
+
+    #[error("invalid Netlink message of type NLMSG_DONE")]
+    InvalidDoneMsg {
+        #[source]
+        due_to: Box<Self>,
+    },
+
+    #[error("failed to parse the netlink message, of type {message_type}")]
+    ParseFailure {
+        message_type: u16,
+        #[source]
+        due_to: Box<dyn std::error::Error>,
+    },
+}

@@ -2,12 +2,9 @@
 
 use std::fmt::Debug;
 
-use anyhow::Context;
-use netlink_packet_utils::DecodeError;
-
 use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
+    CoreError, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorMessage,
     NetlinkBuffer, NetlinkDeserializable, NetlinkHeader, NetlinkPayload,
     NetlinkSerializable, Parseable,
 };
@@ -39,7 +36,7 @@ where
     I: NetlinkDeserializable,
 {
     /// Parse the given buffer as a netlink message
-    pub fn deserialize(buffer: &[u8]) -> Result<Self, DecodeError> {
+    pub fn deserialize(buffer: &[u8]) -> Result<Self, CoreError> {
         let netlink_buffer = NetlinkBuffer::new_checked(&buffer)?;
         <Self as Parseable<NetlinkBuffer<&&[u8]>>>::parse(&netlink_buffer)
     }
@@ -88,33 +85,43 @@ where
     B: AsRef<[u8]> + 'buffer,
     I: NetlinkDeserializable,
 {
-    fn parse(buf: &NetlinkBuffer<&'buffer B>) -> Result<Self, DecodeError> {
+    type Error = CoreError;
+
+    fn parse(buf: &NetlinkBuffer<&'buffer B>) -> Result<Self, Self::Error> {
         use self::NetlinkPayload::*;
 
         let header =
             <NetlinkHeader as Parseable<NetlinkBuffer<&'buffer B>>>::parse(buf)
-                .context("failed to parse netlink header")?;
+                .map_err(|e| CoreError::InvalidHeader { due_to: e.into() })?;
 
         let bytes = buf.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
                 let msg = ErrorBuffer::new_checked(&bytes)
                     .and_then(|buf| ErrorMessage::parse(&buf))
-                    .context("failed to parse NLMSG_ERROR")?;
+                    .map_err(|e| CoreError::InvalidErrorMsg {
+                        due_to: e.into(),
+                    })?;
                 Error(msg)
             }
             NLMSG_NOOP => Noop,
             NLMSG_DONE => {
                 let msg = DoneBuffer::new_checked(&bytes)
                     .and_then(|buf| DoneMessage::parse(&buf))
-                    .context("failed to parse NLMSG_DONE")?;
+                    .map_err(|e| CoreError::InvalidDoneMsg {
+                        due_to: e.into(),
+                    })?;
                 Done(msg)
             }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
             message_type => {
-                let inner_msg = I::deserialize(&header, bytes).context(
-                    format!("Failed to parse message with type {message_type}"),
-                )?;
+                let inner_msg =
+                    I::deserialize(&header, bytes).map_err(|e| {
+                        CoreError::ParseFailure {
+                            message_type,
+                            due_to: e.into(),
+                        }
+                    })?;
                 InnerMessage(inner_msg)
             }
         };

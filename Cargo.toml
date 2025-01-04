@@ -12,9 +12,9 @@ repository = "https://github.com/rust-netlink/netlink-packet-core"
 description = "netlink packet types"
 
 [dependencies]
-anyhow = "1.0.31"
 byteorder = "1.3.2"
-netlink-packet-utils = "0.5.2"
+netlink-packet-utils = { git = "https://github.com/miguelfrde/netlink-packet-utils.git" }
+thiserror = "2.0.9"
 
 [dev-dependencies]
 netlink-packet-route = "0.13.0"

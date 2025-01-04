@@ -3,9 +3,8 @@
 use std::{fmt, io, mem::size_of, num::NonZeroI32};
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
-use crate::{Emitable, Field, Parseable, Rest};
+use crate::{CoreError, Emitable, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
@@ -27,20 +26,16 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
         self.buffer
     }
 
-    pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
+    pub fn new_checked(buffer: T) -> Result<Self, CoreError> {
         let packet = Self::new(buffer);
         packet.check_buffer_length()?;
         Ok(packet)
     }
 
-    fn check_buffer_length(&self) -> Result<(), DecodeError> {
+    fn check_buffer_length(&self) -> Result<(), CoreError> {
         let len = self.buffer.as_ref().len();
         if len < ERROR_HEADER_LEN {
-            Err(format!(
-                "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
-                at least {ERROR_HEADER_LEN} bytes"
-            )
-            .into())
+            Err(CoreError::InvalidErrorBuffer { received: len })
         } else {
             Ok(())
         }
@@ -118,9 +113,11 @@ impl Emitable for ErrorMessage {
 impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<ErrorBuffer<&'buffer T>>
     for ErrorMessage
 {
+    type Error = CoreError;
+
     fn parse(
         buf: &ErrorBuffer<&'buffer T>,
-    ) -> Result<ErrorMessage, DecodeError> {
+    ) -> Result<ErrorMessage, Self::Error> {
         // FIXME: The payload of an error is basically a truncated packet, which
         // requires custom logic to parse correctly. For now we just
         // return it as a Vec<u8> let header: NetlinkHeader = {
