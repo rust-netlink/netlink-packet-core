@@ -3,9 +3,8 @@
 use std::mem::size_of;
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
-use crate::{Emitable, Field, Parseable, Rest};
+use crate::{CoreError, Emitable, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const EXTENDED_ACK: Rest = 4..;
@@ -27,20 +26,16 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
         self.buffer
     }
 
-    pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
+    pub fn new_checked(buffer: T) -> Result<Self, CoreError> {
         let packet = Self::new(buffer);
         packet.check_buffer_length()?;
         Ok(packet)
     }
 
-    fn check_buffer_length(&self) -> Result<(), DecodeError> {
+    fn check_buffer_length(&self) -> Result<(), CoreError> {
         let len = self.buffer.as_ref().len();
         if len < DONE_HEADER_LEN {
-            Err(format!(
-                "invalid DoneBuffer: length is {len} but DoneBuffer are \
-                at least {DONE_HEADER_LEN} bytes"
-            )
-            .into())
+            Err(CoreError::InvalidDoneBuffer { received: len })
         } else {
             Ok(())
         }
@@ -100,7 +95,9 @@ impl Emitable for DoneMessage {
 impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<DoneBuffer<&'buffer T>>
     for DoneMessage
 {
-    fn parse(buf: &DoneBuffer<&'buffer T>) -> Result<DoneMessage, DecodeError> {
+    type Error = CoreError;
+
+    fn parse(buf: &DoneBuffer<&'buffer T>) -> Result<DoneMessage, Self::Error> {
         Ok(DoneMessage {
             code: buf.code(),
             extended_ack: buf.extended_ack().to_vec(),
