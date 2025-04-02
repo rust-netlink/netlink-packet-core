@@ -2,7 +2,6 @@
 
 use std::fmt::Debug;
 
-use anyhow::Context;
 use netlink_packet_utils::DecodeError;
 
 use crate::{
@@ -83,40 +82,41 @@ where
     }
 }
 
-impl<'buffer, B, I> Parseable<NetlinkBuffer<&'buffer B>> for NetlinkMessage<I>
+impl<B, I> Parseable<NetlinkBuffer<&B>> for NetlinkMessage<I>
 where
-    B: AsRef<[u8]> + 'buffer,
+    B: AsRef<[u8]>,
     I: NetlinkDeserializable,
 {
-    fn parse(buf: &NetlinkBuffer<&'buffer B>) -> Result<Self, DecodeError> {
+    type Error = DecodeError;
+
+    fn parse(buf: &NetlinkBuffer<&B>) -> Result<Self, Self::Error> {
         use self::NetlinkPayload::*;
 
         let header =
-            <NetlinkHeader as Parseable<NetlinkBuffer<&'buffer B>>>::parse(buf)
-                .context("failed to parse netlink header")?;
+            <NetlinkHeader as Parseable<NetlinkBuffer<&B>>>::parse(buf)?;
 
         let bytes = buf.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
                 let msg = ErrorBuffer::new_checked(&bytes)
-                    .and_then(|buf| ErrorMessage::parse(&buf))
-                    .context("failed to parse NLMSG_ERROR")?;
+                    .and_then(|buf| ErrorMessage::parse(&buf))?;
                 Error(msg)
             }
             NLMSG_NOOP => Noop,
             NLMSG_DONE => {
                 let msg = DoneBuffer::new_checked(&bytes)
-                    .and_then(|buf| DoneMessage::parse(&buf))
-                    .context("failed to parse NLMSG_DONE")?;
+                    .and_then(|buf| DoneMessage::parse(&buf))?;
                 Done(msg)
             }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
-            message_type => {
-                let inner_msg = I::deserialize(&header, bytes).context(
-                    format!("Failed to parse message with type {message_type}"),
-                )?;
-                InnerMessage(inner_msg)
-            }
+            message_type => match I::deserialize(&header, bytes) {
+                Err(e) => {
+                    return Err(DecodeError::Other(
+                            format!("Failed to parse message with type {message_type}: {e}").into()),
+                    );
+                }
+                Ok(inner_msg) => InnerMessage(inner_msg),
+            },
         };
         Ok(NetlinkMessage { header, payload })
     }
