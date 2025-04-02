@@ -115,12 +115,10 @@ impl Emitable for ErrorMessage {
     }
 }
 
-impl<'buffer, T: AsRef<[u8]> + 'buffer> Parseable<ErrorBuffer<&'buffer T>>
-    for ErrorMessage
-{
-    fn parse(
-        buf: &ErrorBuffer<&'buffer T>,
-    ) -> Result<ErrorMessage, DecodeError> {
+impl<T: AsRef<[u8]>> Parseable<ErrorBuffer<&T>> for ErrorMessage {
+    type Error = DecodeError;
+
+    fn parse(buf: &ErrorBuffer<&T>) -> Result<ErrorMessage, Self::Error> {
         // FIXME: The payload of an error is basically a truncated packet, which
         // requires custom logic to parse correctly. For now we just
         // return it as a Vec<u8> let header: NetlinkHeader = {
