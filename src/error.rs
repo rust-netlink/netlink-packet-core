@@ -87,6 +87,24 @@ impl DecodeError {
             msg: format!("Invalid number. Expected {expected} bytes, received {received} bytes"),
         }
     }
+
+    pub fn nla_buffer_too_small(buffer_len: usize, nla_len: usize) -> Self {
+        Self{
+            msg: format!("buffer has length {buffer_len}, but an NLA header is {nla_len} bytes"),
+        }
+    }
+
+    pub fn nla_length_mismatch(buffer_len: usize, nla_len: usize) -> Self {
+        Self{
+            msg: format!("buffer has length: {buffer_len}, but the NLA is {nla_len} bytes"),
+        }
+    }
+
+    pub fn nla_invalid_length(buffer_len: usize, nla_len: usize) -> Self {
+        Self{
+            msg: format!("NLA has invalid length: {nla_len} (should be at least {buffer_len} bytes)"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
