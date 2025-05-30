@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
-use crate::{Field, Rest};
+use crate::{DecodeError, ErrorContext, Field, Rest};
 
 const LENGTH: Field = 0..4;
 const MESSAGE_TYPE: Field = 4..6;
@@ -158,7 +157,7 @@ impl<T: AsRef<[u8]>> NetlinkBuffer<T> {
     /// ```
     pub fn new_checked(buffer: T) -> Result<NetlinkBuffer<T>, DecodeError> {
         let packet = Self::new(buffer);
-        packet.check_buffer_length()?;
+        packet.check_buffer_length().context("invalid netlink buffer length")?;
         Ok(packet)
     }
 
@@ -331,7 +330,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> NetlinkBuffer<&'a T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NetlinkBuffer<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NetlinkBuffer<&mut T> {
     /// Return a mutable pointer to the payload.
     ///
     /// # Panic

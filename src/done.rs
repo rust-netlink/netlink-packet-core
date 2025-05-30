@@ -3,9 +3,8 @@
 use std::mem::size_of;
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
-use crate::{Emitable, Field, Parseable, Rest};
+use crate::{DecodeError, Emitable, ErrorContext, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const EXTENDED_ACK: Rest = 4..;
@@ -29,7 +28,9 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
 
     pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
         let packet = Self::new(buffer);
-        packet.check_buffer_length()?;
+        packet
+            .check_buffer_length()
+            .context("invalid DoneBuffer length")?;
         Ok(packet)
     }
 
@@ -61,7 +62,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> DoneBuffer<&'a T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> DoneBuffer<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> DoneBuffer<&mut T> {
     /// Return a mutable pointer to the extended ack attributes.
     pub fn extended_ack_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
