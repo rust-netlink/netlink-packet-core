@@ -3,13 +3,91 @@
 use std::{fmt, io, mem::size_of, num::NonZeroI32};
 
 use byteorder::{ByteOrder, NativeEndian};
-use netlink_packet_utils::DecodeError;
 
 use crate::{Emitable, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
+
+pub trait ErrorContext {
+    fn context(self, msg: &str) -> Self;
+}
+
+#[derive(Debug)]
+pub struct DecodeError {
+    msg: String,
+}
+
+impl ErrorContext for DecodeError {
+    fn context(self, msg: &str) -> Self {
+        Self {
+            msg: format!("{} caused by {}", msg, self.msg),
+        }
+    }
+}
+
+impl<T> ErrorContext for Result<T, DecodeError>
+where
+    T: Clone,
+{
+    fn context(self, msg: &str) -> Result<T, DecodeError> {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(e.context(msg)),
+        }
+    }
+}
+
+impl From<&str> for DecodeError {
+    fn from(msg: &str) -> Self {
+        Self {
+            msg: msg.to_string(),
+        }
+    }
+}
+
+impl From<String> for DecodeError {
+    fn from(msg: String) -> Self {
+        Self { msg }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for DecodeError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        Self {
+            msg: format!("Invalid UTF-8 sequence: {}", err),
+        }
+    }
+}
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+impl std::error::Error for DecodeError {}
+
+impl DecodeError {
+    pub fn invalid_mac_address(received: usize) -> Self {
+        Self{
+            msg: format!("Invalid MAC address. Expected 6 bytes, received {received} bytes"),
+        }
+    }
+
+    pub fn invalid_ip_address(received: usize) -> Self {
+        Self{
+            msg: format!("Invalid IP address. Expected 4 or 16 bytes, received {received} bytes"),
+        }
+    }
+
+    pub fn invalid_number(expected: usize, received: usize) -> Self {
+        Self{
+            msg: format!("Invalid number. Expected {expected} bytes, received {received} bytes"),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]
@@ -29,18 +107,21 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
 
     pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
         let packet = Self::new(buffer);
-        packet.check_buffer_length()?;
+        packet
+            .check_buffer_length()
+            .context("invalid ErrorBuffer length")?;
         Ok(packet)
     }
 
     fn check_buffer_length(&self) -> Result<(), DecodeError> {
         let len = self.buffer.as_ref().len();
         if len < ERROR_HEADER_LEN {
-            Err(format!(
-                "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
+            Err(DecodeError {
+                msg: format!(
+                    "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
                 at least {ERROR_HEADER_LEN} bytes"
-            )
-            .into())
+                ),
+            })
         } else {
             Ok(())
         }
@@ -65,7 +146,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> ErrorBuffer<&'a T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> ErrorBuffer<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> ErrorBuffer<&mut T> {
     /// Return a mutable pointer to the payload.
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let data = self.buffer.as_mut();
@@ -199,8 +280,7 @@ mod tests {
     #[test]
     fn parse_nack() {
         // SAFETY: value is non-zero.
-        const ERROR_CODE: NonZeroI32 =
-            unsafe { NonZeroI32::new_unchecked(-1234) };
+        const ERROR_CODE: NonZeroI32 = NonZeroI32::new(-1234).unwrap();
         let mut bytes = vec![0, 0, 0, 0];
         NativeEndian::write_i32(&mut bytes, ERROR_CODE.get());
         let msg = ErrorBuffer::new_checked(&bytes)
