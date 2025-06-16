@@ -244,35 +244,53 @@ pub(crate) type Field = Range<usize>;
 /// Represent a field that starts at a given index in a packet
 pub(crate) type Rest = RangeFrom<usize>;
 
-pub mod done;
-pub use self::done::*;
+mod done;
+pub use self::done::{DoneBuffer, DoneMessage};
 
-pub mod error;
-pub use self::error::*;
+mod error;
+pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
 
-pub mod buffer;
-pub use self::buffer::*;
+mod buffer;
+pub use self::buffer::NetlinkBuffer;
 
-pub mod header;
-pub use self::header::*;
+mod header;
+pub use self::header::NetlinkHeader;
 
 mod traits;
-pub use self::traits::*;
+pub use self::traits::{
+    Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
+    ParseableParametrized,
+};
 
 mod payload;
-pub use self::payload::*;
+pub use self::payload::{
+    NetlinkPayload, NLMSG_ALIGNTO, NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP,
+    NLMSG_OVERRUN,
+};
 
 mod message;
-pub use self::message::*;
+pub use self::message::NetlinkMessage;
 
-pub mod constants;
-pub use self::constants::*;
+mod constants;
+pub use self::constants::{
+    NLM_F_ACK, NLM_F_ACK_TLVS, NLM_F_APPEND, NLM_F_ATOMIC, NLM_F_CAPPED,
+    NLM_F_CREATE, NLM_F_DUMP, NLM_F_DUMP_FILTERED, NLM_F_DUMP_INTR, NLM_F_ECHO,
+    NLM_F_EXCL, NLM_F_MATCH, NLM_F_MULTIPART, NLM_F_NONREC, NLM_F_REPLACE,
+    NLM_F_REQUEST, NLM_F_ROOT,
+};
 
-pub mod nla;
-pub use self::nla::*;
+mod nla;
+pub use self::nla::{
+    DefaultNla, Nla, NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED,
+    NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_TYPE_MASK,
+};
 
-pub mod parsers;
-pub use self::parsers::*;
+mod parsers;
+pub use self::parsers::{
+    parse_i32, parse_i64, parse_i8, parse_ip, parse_ipv6, parse_mac,
+    parse_string, parse_u128, parse_u16, parse_u16_be, parse_u32, parse_u32_be,
+    parse_u64, parse_u8,
+};
 
 #[macro_use]
 mod macros;
