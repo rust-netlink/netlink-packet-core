@@ -2,16 +2,14 @@
 
 use std::{fmt, io, mem::size_of, num::NonZeroI32};
 
-use byteorder::{ByteOrder, NativeEndian};
-
-use crate::{Emitable, Field, Parseable, Rest};
+use crate::{emit_i32, parse_i32, Emitable, Field, Parseable, Rest};
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
 
-pub trait ErrorContext {
-    fn context(self, msg: &str) -> Self;
+pub trait ErrorContext<T: std::fmt::Display> {
+    fn context(self, msg: T) -> Self;
 }
 
 #[derive(Debug)]
@@ -19,19 +17,19 @@ pub struct DecodeError {
     msg: String,
 }
 
-impl ErrorContext for DecodeError {
-    fn context(self, msg: &str) -> Self {
+impl<T: std::fmt::Display> ErrorContext<T> for DecodeError {
+    fn context(self, msg: T) -> Self {
         Self {
             msg: format!("{} caused by {}", msg, self.msg),
         }
     }
 }
 
-impl<T> ErrorContext for Result<T, DecodeError>
+impl<T, M> ErrorContext<M> for Result<T, DecodeError>
 where
-    T: Clone,
+    M: std::fmt::Display,
 {
-    fn context(self, msg: &str) -> Result<T, DecodeError> {
+    fn context(self, msg: M) -> Result<T, DecodeError> {
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(e.context(msg)),
@@ -70,6 +68,19 @@ impl std::fmt::Display for DecodeError {
 impl std::error::Error for DecodeError {}
 
 impl DecodeError {
+    pub fn invalid_buffer(
+        name: &str,
+        received: usize,
+        minimum_length: usize,
+    ) -> Self {
+        Self {
+            msg: format!(
+                "Invalid buffer {name}. \
+                Expected at least {minimum_length} bytes, \
+                received {received} bytes"
+            ),
+        }
+    }
     pub fn invalid_mac_address(received: usize) -> Self {
         Self{
             msg: format!("Invalid MAC address. Expected 6 bytes, received {received} bytes"),
@@ -103,6 +114,12 @@ impl DecodeError {
     pub fn nla_invalid_length(buffer_len: usize, nla_len: usize) -> Self {
         Self{
             msg: format!("NLA has invalid length: {nla_len} (should be at least {buffer_len} bytes)"),
+        }
+    }
+
+    pub fn buffer_too_small(buffer_len: usize, value_len: usize) -> Self {
+        Self {
+            msg: format!("Buffer too small: {buffer_len} (should be at least {value_len} bytes"),
         }
     }
 }
@@ -152,7 +169,7 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
     /// message is a NACK).
     pub fn code(&self) -> Option<NonZeroI32> {
         let data = self.buffer.as_ref();
-        NonZeroI32::new(NativeEndian::read_i32(&data[CODE]))
+        NonZeroI32::new(parse_i32(&data[CODE]).unwrap())
     }
 }
 
@@ -176,7 +193,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ErrorBuffer<T> {
     /// set the error code field
     pub fn set_code(&mut self, value: i32) {
         let data = self.buffer.as_mut();
-        NativeEndian::write_i32(&mut data[CODE], value)
+        emit_i32(&mut data[CODE], value).unwrap();
     }
 }
 
@@ -215,9 +232,7 @@ impl Emitable for ErrorMessage {
 }
 
 impl<T: AsRef<[u8]>> Parseable<ErrorBuffer<&T>> for ErrorMessage {
-    type Error = DecodeError;
-
-    fn parse(buf: &ErrorBuffer<&T>) -> Result<ErrorMessage, Self::Error> {
+    fn parse(buf: &ErrorBuffer<&T>) -> Result<ErrorMessage, DecodeError> {
         // FIXME: The payload of an error is basically a truncated packet, which
         // requires custom logic to parse correctly. For now we just
         // return it as a Vec<u8> let header: NetlinkHeader = {
@@ -300,7 +315,7 @@ mod tests {
         // SAFETY: value is non-zero.
         const ERROR_CODE: NonZeroI32 = NonZeroI32::new(-1234).unwrap();
         let mut bytes = vec![0, 0, 0, 0];
-        NativeEndian::write_i32(&mut bytes, ERROR_CODE.get());
+        emit_i32(&mut bytes, ERROR_CODE.get()).unwrap();
         let msg = ErrorBuffer::new_checked(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
