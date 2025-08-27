@@ -2,9 +2,10 @@
 
 use std::mem::size_of;
 
-use byteorder::{ByteOrder, NativeEndian};
-
-use crate::{DecodeError, Emitable, ErrorContext, Field, Parseable, Rest};
+use crate::{
+    emit_i32, parse_i32, DecodeError, Emitable, ErrorContext, Field, Parseable,
+    Rest,
+};
 
 const CODE: Field = 0..4;
 const EXTENDED_ACK: Rest = 4..;
@@ -50,7 +51,7 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
     /// Return the error code
     pub fn code(&self) -> i32 {
         let data = self.buffer.as_ref();
-        NativeEndian::read_i32(&data[CODE])
+        parse_i32(&data[CODE]).unwrap()
     }
 }
 
@@ -74,7 +75,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DoneBuffer<T> {
     /// set the error code field
     pub fn set_code(&mut self, value: i32) {
         let data = self.buffer.as_mut();
-        NativeEndian::write_i32(&mut data[CODE], value)
+        emit_i32(&mut data[CODE], value).unwrap();
     }
 }
 
@@ -99,9 +100,7 @@ impl Emitable for DoneMessage {
 }
 
 impl<T: AsRef<[u8]>> Parseable<DoneBuffer<&T>> for DoneMessage {
-    type Error = DecodeError;
-
-    fn parse(buf: &DoneBuffer<&T>) -> Result<DoneMessage, Self::Error> {
+    fn parse(buf: &DoneBuffer<&T>) -> Result<DoneMessage, DecodeError> {
         Ok(DoneMessage {
             code: buf.code(),
             extended_ack: buf.extended_ack().to_vec(),

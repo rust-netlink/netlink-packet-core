@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
+    emit_u16, parse_u16,
     traits::{Emitable, Parseable},
     DecodeError,
 };
-use byteorder::{ByteOrder, NativeEndian};
 use core::ops::Range;
 
 /// Represent a multi-bytes field with a fixed size in a packet
@@ -89,17 +89,17 @@ impl<T: AsRef<[u8]>> NlaBuffer<T> {
     /// Return the `type` field
     pub fn kind(&self) -> u16 {
         let data = self.buffer.as_ref();
-        NativeEndian::read_u16(&data[TYPE]) & NLA_TYPE_MASK
+        parse_u16(&data[TYPE]).unwrap() & NLA_TYPE_MASK
     }
 
     pub fn nested_flag(&self) -> bool {
         let data = self.buffer.as_ref();
-        (NativeEndian::read_u16(&data[TYPE]) & NLA_F_NESTED) != 0
+        (parse_u16(&data[TYPE]).unwrap() & NLA_F_NESTED) != 0
     }
 
     pub fn network_byte_order_flag(&self) -> bool {
         let data = self.buffer.as_ref();
-        (NativeEndian::read_u16(&data[TYPE]) & NLA_F_NET_BYTEORDER) != 0
+        (parse_u16(&data[TYPE]).unwrap() & NLA_F_NET_BYTEORDER) != 0
     }
 
     /// Return the `length` field. The `length` field corresponds to the length
@@ -108,7 +108,7 @@ impl<T: AsRef<[u8]>> NlaBuffer<T> {
     /// the value field.
     pub fn length(&self) -> u16 {
         let data = self.buffer.as_ref();
-        NativeEndian::read_u16(&data[LENGTH])
+        parse_u16(&data[LENGTH]).unwrap()
     }
 
     /// Return the length of the `value` field
@@ -126,25 +126,25 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NlaBuffer<T> {
     /// Set the `type` field
     pub fn set_kind(&mut self, kind: u16) {
         let data = self.buffer.as_mut();
-        NativeEndian::write_u16(&mut data[TYPE], kind & NLA_TYPE_MASK)
+        emit_u16(&mut data[TYPE], kind & NLA_TYPE_MASK).unwrap()
     }
 
     pub fn set_nested_flag(&mut self) {
         let kind = self.kind();
         let data = self.buffer.as_mut();
-        NativeEndian::write_u16(&mut data[TYPE], kind | NLA_F_NESTED)
+        emit_u16(&mut data[TYPE], kind | NLA_F_NESTED).unwrap()
     }
 
     pub fn set_network_byte_order_flag(&mut self) {
         let kind = self.kind();
         let data = self.buffer.as_mut();
-        NativeEndian::write_u16(&mut data[TYPE], kind | NLA_F_NET_BYTEORDER)
+        emit_u16(&mut data[TYPE], kind | NLA_F_NET_BYTEORDER).unwrap()
     }
 
     /// Set the `length` field
     pub fn set_length(&mut self, length: u16) {
         let data = self.buffer.as_mut();
-        NativeEndian::write_u16(&mut data[LENGTH], length)
+        emit_u16(&mut data[LENGTH], length).unwrap()
     }
 }
 
@@ -190,9 +190,7 @@ impl Nla for DefaultNla {
 impl<'buffer, T: AsRef<[u8]> + ?Sized> Parseable<NlaBuffer<&'buffer T>>
     for DefaultNla
 {
-    type Error = DecodeError;
-
-    fn parse(buf: &NlaBuffer<&'buffer T>) -> Result<Self, Self::Error> {
+    fn parse(buf: &NlaBuffer<&'buffer T>) -> Result<Self, DecodeError> {
         let mut kind = buf.kind();
 
         if buf.network_byte_order_flag() {

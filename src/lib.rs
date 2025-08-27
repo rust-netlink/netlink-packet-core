@@ -244,53 +244,55 @@ pub(crate) type Field = Range<usize>;
 /// Represent a field that starts at a given index in a packet
 pub(crate) type Rest = RangeFrom<usize>;
 
-mod done;
-pub use self::done::{DoneBuffer, DoneMessage};
-
-mod error;
-pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
-
 mod buffer;
-pub use self::buffer::NetlinkBuffer;
-
-mod header;
-pub use self::header::NetlinkHeader;
-
-mod traits;
-pub use self::traits::{
-    Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
-    ParseableParametrized,
-};
-
-mod payload;
-pub use self::payload::{
-    NetlinkPayload, NLMSG_ALIGNTO, NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP,
-    NLMSG_OVERRUN,
-};
-
-mod message;
-pub use self::message::NetlinkMessage;
-
 mod constants;
+mod done;
+mod error;
+mod header;
+mod message;
+mod nla;
+mod parsers;
+mod payload;
+mod traits;
+#[macro_use]
+mod macros;
+
+pub use self::buffer::NetlinkBuffer;
 pub use self::constants::{
     NLM_F_ACK, NLM_F_ACK_TLVS, NLM_F_APPEND, NLM_F_ATOMIC, NLM_F_CAPPED,
     NLM_F_CREATE, NLM_F_DUMP, NLM_F_DUMP_FILTERED, NLM_F_DUMP_INTR, NLM_F_ECHO,
     NLM_F_EXCL, NLM_F_MATCH, NLM_F_MULTIPART, NLM_F_NONREC, NLM_F_REPLACE,
     NLM_F_REQUEST, NLM_F_ROOT,
 };
-
-mod nla;
+pub use self::done::{DoneBuffer, DoneMessage};
+pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
+pub use self::header::NetlinkHeader;
+pub use self::message::NetlinkMessage;
 pub use self::nla::{
     DefaultNla, Nla, NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED,
     NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_TYPE_MASK,
 };
-
-mod parsers;
 pub use self::parsers::{
-    parse_i32, parse_i64, parse_i8, parse_ip, parse_ipv6, parse_mac,
-    parse_string, parse_u128, parse_u16, parse_u16_be, parse_u32, parse_u32_be,
-    parse_u64, parse_u8,
+    emit_i128, emit_i128_be, emit_i128_le, emit_i16, emit_i16_be, emit_i16_le,
+    emit_i32, emit_i32_be, emit_i32_le, emit_i64, emit_i64_be, emit_i64_le,
+    emit_u128, emit_u128_be, emit_u128_le, emit_u16, emit_u16_be, emit_u16_le,
+    emit_u32, emit_u32_be, emit_u32_le, emit_u64, emit_u64_be, emit_u64_le,
+    parse_i128, parse_i128_be, parse_i128_le, parse_i16, parse_i16_be,
+    parse_i16_le, parse_i32, parse_i32_be, parse_i32_le, parse_i64,
+    parse_i64_be, parse_i64_le, parse_i8, parse_ip, parse_ipv6, parse_mac,
+    parse_string, parse_u128, parse_u128_be, parse_u128_le, parse_u16,
+    parse_u16_be, parse_u16_le, parse_u32, parse_u32_be, parse_u32_le,
+    parse_u64, parse_u64_be, parse_u64_le, parse_u8,
+};
+pub use self::payload::{
+    NetlinkPayload, NLMSG_ALIGNTO, NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP,
+    NLMSG_OVERRUN,
+};
+pub use self::traits::{
+    Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
+    ParseableParametrized,
 };
 
-#[macro_use]
-mod macros;
+// For buffer! macros
+#[doc(hidden)]
+pub use pastey::paste;
