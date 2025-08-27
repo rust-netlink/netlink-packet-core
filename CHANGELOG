@@ -1,4 +1,17 @@
 # Changelog
+## [0.8.0] - 2025-08-27
+### Breaking changes
+ - Changed `DecodeError` from enum to struct. (f55d7b7, 63da36a)
+ - Merged `netlink-packet-utils` into `netlink-packet-core`. (f55d7b7, 0951455,
+   ba127bf, a232478, 8027f63, 41fe03d, 260e596, cc6bf08, 63da36a, 410c61d)
+ - Remove dependency of byteorder crate. (16d63fb)
+
+### New features
+ - Support zero sized done message. (100413a)
+
+### Bug fixes
+ - N/A
+
 ## [0.7.0] - 2023-07-09
 ### Breaking changes
  - `NetlinkPayload::Ack` removed and replaced by `NetlinkPayload::Error` where
