@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-use crate::NetlinkHeader;
-use std::error::Error;
+use crate::{DecodeError, NetlinkHeader};
 
 /// A `NetlinkDeserializable` type can be deserialized from a buffer
 pub trait NetlinkDeserializable: Sized {
-    type Error: Error + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Deserialize the given buffer into `Self`.
     fn deserialize(
@@ -66,10 +65,8 @@ where
     Self: Sized,
     T: ?Sized,
 {
-    type Error;
-
     /// Deserialize the current type.
-    fn parse(buf: &T) -> Result<Self, Self::Error>;
+    fn parse(buf: &T) -> Result<Self, DecodeError>;
 }
 
 /// A `Parseable` type can be used to deserialize data from the type `T` for
@@ -79,8 +76,6 @@ where
     Self: Sized,
     T: ?Sized,
 {
-    type Error;
-
     /// Deserialize the current type.
-    fn parse_with_param(buf: &T, params: P) -> Result<Self, Self::Error>;
+    fn parse_with_param(buf: &T, params: P) -> Result<Self, DecodeError>;
 }
