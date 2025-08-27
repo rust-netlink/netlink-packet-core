@@ -2,7 +2,7 @@
 authors = ["Corentin Henry <corentinhenry@gmail.com>"]
 name = "netlink-packet-core"
 version = "0.7.0"
-edition = "2018"
+edition = "2021"
 
 homepage = "https://github.com/rust-netlink/netlink-packet-core"
 keywords = ["netlink", "linux"]
