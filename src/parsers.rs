@@ -5,7 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
-use byteorder::{BigEndian, ByteOrder, NativeEndian};
+use pastey::paste;
 
 use crate::DecodeError;
 
@@ -88,75 +88,103 @@ pub fn parse_i8(payload: &[u8]) -> Result<i8, DecodeError> {
     Ok(payload[0] as i8)
 }
 
-pub fn parse_u32(payload: &[u8]) -> Result<u32, DecodeError> {
-    if payload.len() != size_of::<u32>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u32>(),
-            payload.len(),
-        ));
+macro_rules! gen_int_parser {
+    ( $($data_type:ty,)+ ) => {
+        $(
+
+            paste! {
+                pub fn [<parse_ $data_type >](
+                    payload: &[u8]
+                ) -> Result<$data_type, DecodeError> {
+                    if payload.len() != size_of::<$data_type>() {
+                        return Err(DecodeError::invalid_number(
+                            size_of::<$data_type>(),
+                            payload.len(),
+                        ));
+                    }
+                    let mut data = [0u8; size_of::<$data_type>()];
+                    data.copy_from_slice(payload);
+                    Ok(<$data_type>::from_ne_bytes(data))
+                }
+
+                pub fn [<parse_ $data_type _be>](
+                    payload: &[u8]
+                ) -> Result<$data_type, DecodeError> {
+                    if payload.len() != size_of::<$data_type>() {
+                        return Err(DecodeError::invalid_number(
+                            size_of::<$data_type>(),
+                            payload.len(),
+                        ));
+                    }
+                    let mut data = [0u8; size_of::<$data_type>()];
+                    data.copy_from_slice(payload);
+                    Ok(<$data_type>::from_be_bytes(data))
+                }
+
+                pub fn [<parse_ $data_type _le>](
+                    payload: &[u8]
+                ) -> Result<$data_type, DecodeError> {
+                    if payload.len() != size_of::<$data_type>() {
+                        return Err(DecodeError::invalid_number(
+                            size_of::<$data_type>(),
+                            payload.len(),
+                        ));
+                    }
+                    let mut data = [0u8; size_of::<$data_type>()];
+                    data.copy_from_slice(payload);
+                    Ok(<$data_type>::from_le_bytes(data))
+                }
+
+                pub fn [<emit_ $data_type >](
+                    buf: &mut [u8],
+                    value: $data_type,
+                ) -> Result<(), DecodeError> {
+                    if buf.len() < size_of::<$data_type>() {
+                        return Err(DecodeError::buffer_too_small(
+                            buf.len(),
+                            size_of::<$data_type>(),
+                        ));
+                    }
+                    buf[..size_of::<$data_type>()].copy_from_slice(
+                        &value.to_ne_bytes()
+                    );
+                    Ok(())
+                }
+
+                pub fn [<emit_ $data_type _le>](
+                    buf: &mut [u8],
+                    value: $data_type,
+                ) -> Result<(), DecodeError> {
+                    if buf.len() < size_of::<$data_type>() {
+                        return Err(DecodeError::buffer_too_small(
+                            buf.len(),
+                            size_of::<$data_type>(),
+                        ));
+                    }
+                    buf[..size_of::<$data_type>()].copy_from_slice(
+                        &value.to_le_bytes()
+                    );
+                    Ok(())
+                }
+
+                pub fn [<emit_ $data_type _be>](
+                    buf: &mut [u8],
+                    value: $data_type,
+                ) -> Result<(), DecodeError> {
+                    if buf.len() < size_of::<$data_type>() {
+                        return Err(DecodeError::buffer_too_small(
+                            buf.len(),
+                            size_of::<$data_type>(),
+                        ));
+                    }
+                    buf[..size_of::<$data_type>()].copy_from_slice(
+                        &value.to_be_bytes()
+                    );
+                    Ok(())
+                }
+            }
+        )+
     }
-    Ok(NativeEndian::read_u32(payload))
 }
 
-pub fn parse_u64(payload: &[u8]) -> Result<u64, DecodeError> {
-    if payload.len() != size_of::<u64>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u64>(),
-            payload.len(),
-        ));
-    }
-    Ok(NativeEndian::read_u64(payload))
-}
-pub fn parse_u128(payload: &[u8]) -> Result<u128, DecodeError> {
-    if payload.len() != size_of::<u128>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u128>(),
-            payload.len(),
-        ));
-    }
-    Ok(NativeEndian::read_u128(payload))
-}
-
-pub fn parse_u16(payload: &[u8]) -> Result<u16, DecodeError> {
-    if payload.len() != size_of::<u16>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u16>(),
-            payload.len(),
-        ));
-    }
-    Ok(NativeEndian::read_u16(payload))
-}
-
-pub fn parse_i32(payload: &[u8]) -> Result<i32, DecodeError> {
-    if payload.len() != 4 {
-        return Err(DecodeError::invalid_number(4, payload.len()));
-    }
-    Ok(NativeEndian::read_i32(payload))
-}
-
-pub fn parse_i64(payload: &[u8]) -> Result<i64, DecodeError> {
-    if payload.len() != 8 {
-        return Err(format!("invalid i64: {payload:?}").into());
-    }
-    Ok(NativeEndian::read_i64(payload))
-}
-
-pub fn parse_u16_be(payload: &[u8]) -> Result<u16, DecodeError> {
-    if payload.len() != size_of::<u16>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u16>(),
-            payload.len(),
-        ));
-    }
-    Ok(BigEndian::read_u16(payload))
-}
-
-pub fn parse_u32_be(payload: &[u8]) -> Result<u32, DecodeError> {
-    if payload.len() != size_of::<u32>() {
-        return Err(DecodeError::invalid_number(
-            size_of::<u32>(),
-            payload.len(),
-        ));
-    }
-    Ok(BigEndian::read_u32(payload))
-}
+gen_int_parser!(u16, u32, u64, u128, i16, i32, i64, i128,);
