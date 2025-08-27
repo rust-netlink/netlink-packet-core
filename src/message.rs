@@ -86,9 +86,7 @@ where
     B: AsRef<[u8]>,
     I: NetlinkDeserializable,
 {
-    type Error = DecodeError;
-
-    fn parse(buf: &NetlinkBuffer<&B>) -> Result<Self, Self::Error> {
+    fn parse(buf: &NetlinkBuffer<&B>) -> Result<Self, DecodeError> {
         use self::NetlinkPayload::*;
 
         let header =
