@@ -39,8 +39,8 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
         let len = self.buffer.as_ref().len();
         if len < DONE_HEADER_LEN {
             Err(format!(
-                "invalid DoneBuffer: length is {len} but DoneBuffer are \
-                at least {DONE_HEADER_LEN} bytes"
+                "invalid DoneBuffer: length is {len} but DoneBuffer are at \
+                 least {DONE_HEADER_LEN} bytes"
             )
             .into())
         } else {

@@ -75,51 +75,71 @@ impl DecodeError {
     ) -> Self {
         Self {
             msg: format!(
-                "Invalid buffer {name}. \
-                Expected at least {minimum_length} bytes, \
-                received {received} bytes"
+                "Invalid buffer {name}. Expected at least {minimum_length} \
+                 bytes, received {received} bytes"
             ),
         }
     }
     pub fn invalid_mac_address(received: usize) -> Self {
-        Self{
-            msg: format!("Invalid MAC address. Expected 6 bytes, received {received} bytes"),
+        Self {
+            msg: format!(
+                "Invalid MAC address. Expected 6 bytes, received {received} \
+                 bytes"
+            ),
         }
     }
 
     pub fn invalid_ip_address(received: usize) -> Self {
-        Self{
-            msg: format!("Invalid IP address. Expected 4 or 16 bytes, received {received} bytes"),
+        Self {
+            msg: format!(
+                "Invalid IP address. Expected 4 or 16 bytes, received \
+                 {received} bytes"
+            ),
         }
     }
 
     pub fn invalid_number(expected: usize, received: usize) -> Self {
-        Self{
-            msg: format!("Invalid number. Expected {expected} bytes, received {received} bytes"),
+        Self {
+            msg: format!(
+                "Invalid number. Expected {expected} bytes, received \
+                 {received} bytes"
+            ),
         }
     }
 
     pub fn nla_buffer_too_small(buffer_len: usize, nla_len: usize) -> Self {
-        Self{
-            msg: format!("buffer has length {buffer_len}, but an NLA header is {nla_len} bytes"),
+        Self {
+            msg: format!(
+                "buffer has length {buffer_len}, but an NLA header is \
+                 {nla_len} bytes"
+            ),
         }
     }
 
     pub fn nla_length_mismatch(buffer_len: usize, nla_len: usize) -> Self {
-        Self{
-            msg: format!("buffer has length: {buffer_len}, but the NLA is {nla_len} bytes"),
+        Self {
+            msg: format!(
+                "buffer has length: {buffer_len}, but the NLA is {nla_len} \
+                 bytes"
+            ),
         }
     }
 
     pub fn nla_invalid_length(buffer_len: usize, nla_len: usize) -> Self {
-        Self{
-            msg: format!("NLA has invalid length: {nla_len} (should be at least {buffer_len} bytes)"),
+        Self {
+            msg: format!(
+                "NLA has invalid length: {nla_len} (should be at least \
+                 {buffer_len} bytes)"
+            ),
         }
     }
 
     pub fn buffer_too_small(buffer_len: usize, value_len: usize) -> Self {
         Self {
-            msg: format!("Buffer too small: {buffer_len} (should be at least {value_len} bytes"),
+            msg: format!(
+                "Buffer too small: {buffer_len} (should be at least \
+                 {value_len} bytes"
+            ),
         }
     }
 }
@@ -154,7 +174,7 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
             Err(DecodeError {
                 msg: format!(
                     "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
-                at least {ERROR_HEADER_LEN} bytes"
+                     at least {ERROR_HEADER_LEN} bytes"
                 ),
             })
         } else {
