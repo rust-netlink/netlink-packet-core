@@ -9,7 +9,7 @@ use crate::{
 
 const CODE: Field = 0..4;
 const EXTENDED_ACK: Rest = 4..;
-const DONE_HEADER_LEN: usize = EXTENDED_ACK.start;
+pub(crate) const DONE_HEADER_LEN: usize = EXTENDED_ACK.start;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]

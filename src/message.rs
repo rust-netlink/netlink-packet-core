@@ -3,6 +3,7 @@
 use std::fmt::Debug;
 
 use crate::{
+    done::DONE_HEADER_LEN,
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
     DecodeError, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorContext,
     ErrorMessage, NetlinkBuffer, NetlinkDeserializable, NetlinkHeader,
@@ -103,9 +104,16 @@ where
             }
             NLMSG_NOOP => Noop,
             NLMSG_DONE => {
-                let msg = DoneBuffer::new_checked(&bytes)
-                    .and_then(|buf| DoneMessage::parse(&buf))
-                    .context("failed parsing NLMSG_DONE")?;
+                // Linux kernel allows zero sized of NLMSG_DONE
+                let msg = if bytes.is_empty() {
+                    DoneBuffer::new_checked(&[0u8; DONE_HEADER_LEN])
+                        .and_then(|buf| DoneMessage::parse(&buf))
+                        .context("failed to parse NLMSG_DONE")?
+                } else {
+                    DoneBuffer::new_checked(&bytes)
+                        .and_then(|buf| DoneMessage::parse(&buf))
+                        .context("failed to parse NLMSG_DONE")?
+                };
                 Done(msg)
             }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
