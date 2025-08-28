@@ -148,9 +148,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NlaBuffer<T> {
     }
 }
 
-impl<T: AsRef<[u8]> + ?Sized> NlaBuffer<&T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> NlaBuffer<&'a T> {
     /// Return the `value` field
-    pub fn value(&self) -> &[u8] {
+    pub fn value(&self) -> &'a [u8] {
         &self.buffer.as_ref()[VALUE(self.value_length())]
     }
 }
@@ -373,5 +373,15 @@ mod tests {
     #[should_panic]
     fn test_align_overflow() {
         assert_eq!(nla_align!(get_len() - 3), usize::MAX);
+    }
+
+    // compile-time test, should not result in compiler complaints regarding
+    // lifetimes or returning values allegedly owned by this function
+    #[allow(dead_code)]
+    fn nla_buffer_outlives_value(nlas: &[u8]) -> Option<&[u8]> {
+        for nla in NlasIterator::new(nlas) {
+            return Some(nla.unwrap().value())
+        }
+        None
     }
 }
