@@ -7,7 +7,7 @@ use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
     DecodeError, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorContext,
     ErrorMessage, NetlinkBuffer, NetlinkDeserializable, NetlinkHeader,
-    NetlinkPayload, NetlinkSerializable, Parseable,
+    NetlinkPayload, NetlinkSerializable, Parseable, NLM_F_MULTIPART,
 };
 
 /// Represent a netlink message.
@@ -103,7 +103,8 @@ where
                 Error(msg)
             }
             NLMSG_NOOP => Noop,
-            NLMSG_DONE => {
+            // message without NLM_F_MULTIPART shouldn't be parsed to DoneMessage
+            NLMSG_DONE if header.flags & NLM_F_MULTIPART != 0 => {
                 // Linux kernel allows zero sized of NLMSG_DONE
                 let msg = if bytes.is_empty() {
                     DoneBuffer::new_checked(&[0u8; DONE_HEADER_LEN])
@@ -214,7 +215,8 @@ mod tests {
 
     #[test]
     fn test_done() {
-        let header = NetlinkHeader::default();
+        let mut header = NetlinkHeader::default();
+        header.flags |= NLM_F_MULTIPART;
         let done_msg = DoneMessage {
             code: 0,
             extended_ack: vec![6, 7, 8, 9],
