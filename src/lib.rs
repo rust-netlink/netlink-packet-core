@@ -61,8 +61,8 @@
 //! let deserialized_packet =
 //!     NetlinkMessage::<RtnlMessage>::deserialize(&buf).expect("Failed to deserialize message");
 //!
-//! // Normally, the deserialized packet should be exactly the same
-//! // than the serialized one.
+//! // Normally, the packet deserialized from the buffer should be exactly the same
+//! // as the original packet we serialized.
 //! assert_eq!(deserialized_packet, packet);
 //!
 //! println!("{:?}", packet);
@@ -228,8 +228,8 @@
 //!     let deserialized_packet = NetlinkMessage::<PingPongMessage>::deserialize(&buf)
 //!         .expect("Failed to deserialize message");
 //!
-//!     // Normally, the deserialized packet should be exactly the same
-//!     // than the serialized one.
+//!     // Normally, the packet deserialized from the buffer should be exactly the same
+//!     // as the original packet we serialized.
 //!     assert_eq!(deserialized_packet, packet);
 //!
 //!     // This should print:
