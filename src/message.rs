@@ -12,7 +12,6 @@ use crate::{
 
 /// Represent a netlink message.
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[non_exhaustive]
 pub struct NetlinkMessage<I> {
     /// Message header (this is common to all the netlink protocols)
     pub header: NetlinkHeader,
