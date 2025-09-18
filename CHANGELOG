@@ -1,4 +1,14 @@
 # Changelog
+## [0.8.1] - 2025-09-18
+### Breaking changes
+ - N/A
+
+### New features
+ - N/A
+
+### Bug fixes
+ - Revert back to paste dependency. (4447216)
+
 ## [0.8.0] - 2025-08-27
 ### Breaking changes
  - Changed `DecodeError` from enum to struct. (f55d7b7, 63da36a)
