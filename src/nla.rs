@@ -148,9 +148,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NlaBuffer<T> {
     }
 }
 
-impl<T: AsRef<[u8]> + ?Sized> NlaBuffer<&T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> NlaBuffer<&'a T> {
     /// Return the `value` field
-    pub fn value(&self) -> &[u8] {
+    pub fn value(&self) -> &'a [u8] {
         &self.buffer.as_ref()[VALUE(self.value_length())]
     }
 }
@@ -373,5 +373,38 @@ mod tests {
     #[should_panic]
     fn test_align_overflow() {
         assert_eq!(nla_align!(get_len() - 3), usize::MAX);
+    }
+
+    #[test]
+    fn test_nlas_iterator() {
+        // sample NFTA_LIST_ELEM from nftables, with nested nlas at the end
+        static NESTED_NLAS: &[u8] = &[
+            0x0c, 0x00, 0x01, 0x00,
+            0x63, 0x6f, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x00,
+            0x1c, 0x00, 0x02, 0x00,
+            0x0c, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x47, 0xda, 0x7a, 0x03,
+            0x1b, 0x0c, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8e, 0x14,
+            0x56, 0x39
+        ];
+        let mut iter = NlasIterator::new(NESTED_NLAS);
+        // DecodeError does not implement PartialEq, hence
+        // unwrap() and is_none()
+        assert_eq!(iter.next().unwrap().unwrap().value(), &NESTED_NLAS[4..12]);
+        assert_eq!(iter.next().unwrap().unwrap().value(), &NESTED_NLAS[16..]);
+        assert!(iter.next().is_none());
+
+        // this sholud be an Err()
+        let truncated = &NESTED_NLAS[ .. NESTED_NLAS.len()-1];
+        assert!(NlasIterator::new(truncated).last().unwrap().is_err());
+
+        let last = {
+            // it should be possible to pass &[u8] through
+            // NlasIterator and return one of its output &[u8]s without facing
+            // compiler error about lifetimes and returning borrows from
+            // something is limited to this scope
+            let last = NlasIterator::new(NESTED_NLAS).last();
+            last.unwrap().unwrap().value()
+        };
+        assert_eq!(last, &NESTED_NLAS[16..]);
     }
 }
