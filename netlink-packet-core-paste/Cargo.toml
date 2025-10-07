@@ -1,0 +1,19 @@
+[package]
+name = "netlink-packet-core-paste"
+version = "0.1.0"
+authors = ["Corentin Henry <corentinhenry@gmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Vendored paste crate for netlink-packet-core (token pasting for macros)"
+repository = "https://github.com/rust-netlink/netlink-packet-core"
+rust-version = "1.56"
+
+[lib]
+proc-macro = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_literal_fromstr)'] }
+
+# Note: This is a vendored copy of the paste crate v1.0.15 by David Tolnay
+# Original: https://github.com/dtolnay/paste
+# Vendored to avoid dependency on unmaintained crate while keeping stable API

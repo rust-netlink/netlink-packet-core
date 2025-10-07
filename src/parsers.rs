@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-use std::{
-    mem::size_of,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
-
-use paste::paste;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::DecodeError;
+use netlink_packet_core_paste::paste;
 
 pub fn parse_mac(payload: &[u8]) -> Result<[u8; 6], DecodeError> {
     if payload.len() != 6 {
@@ -96,13 +92,13 @@ macro_rules! gen_int_parser {
                 pub fn [<parse_ $data_type >](
                     payload: &[u8]
                 ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
+                    if payload.len() != std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                             payload.len(),
                         ));
                     }
-                    let mut data = [0u8; size_of::<$data_type>()];
+                    let mut data = [0u8; std::mem::size_of::<$data_type>()];
                     data.copy_from_slice(payload);
                     Ok(<$data_type>::from_ne_bytes(data))
                 }
@@ -110,13 +106,13 @@ macro_rules! gen_int_parser {
                 pub fn [<parse_ $data_type _be>](
                     payload: &[u8]
                 ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
+                    if payload.len() != std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                             payload.len(),
                         ));
                     }
-                    let mut data = [0u8; size_of::<$data_type>()];
+                    let mut data = [0u8; std::mem::size_of::<$data_type>()];
                     data.copy_from_slice(payload);
                     Ok(<$data_type>::from_be_bytes(data))
                 }
@@ -124,13 +120,13 @@ macro_rules! gen_int_parser {
                 pub fn [<parse_ $data_type _le>](
                     payload: &[u8]
                 ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
+                    if payload.len() != std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                             payload.len(),
                         ));
                     }
-                    let mut data = [0u8; size_of::<$data_type>()];
+                    let mut data = [0u8; std::mem::size_of::<$data_type>()];
                     data.copy_from_slice(payload);
                     Ok(<$data_type>::from_le_bytes(data))
                 }
@@ -139,13 +135,13 @@ macro_rules! gen_int_parser {
                     buf: &mut [u8],
                     value: $data_type,
                 ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
+                    if buf.len() < std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::buffer_too_small(
                             buf.len(),
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                         ));
                     }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
+                    buf[..std::mem::size_of::<$data_type>()].copy_from_slice(
                         &value.to_ne_bytes()
                     );
                     Ok(())
@@ -155,13 +151,13 @@ macro_rules! gen_int_parser {
                     buf: &mut [u8],
                     value: $data_type,
                 ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
+                    if buf.len() < std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::buffer_too_small(
                             buf.len(),
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                         ));
                     }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
+                    buf[..std::mem::size_of::<$data_type>()].copy_from_slice(
                         &value.to_le_bytes()
                     );
                     Ok(())
@@ -171,13 +167,13 @@ macro_rules! gen_int_parser {
                     buf: &mut [u8],
                     value: $data_type,
                 ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
+                    if buf.len() < std::mem::size_of::<$data_type>() {
                         return Err(DecodeError::buffer_too_small(
                             buf.len(),
-                            size_of::<$data_type>(),
+                            std::mem::size_of::<$data_type>(),
                         ));
                     }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
+                    buf[..std::mem::size_of::<$data_type>()].copy_from_slice(
                         &value.to_be_bytes()
                     );
                     Ok(())

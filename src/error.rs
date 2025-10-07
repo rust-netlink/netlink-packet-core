@@ -54,7 +54,7 @@ impl From<String> for DecodeError {
 impl From<std::string::FromUtf8Error> for DecodeError {
     fn from(err: std::string::FromUtf8Error) -> Self {
         Self {
-            msg: format!("Invalid UTF-8 sequence: {}", err),
+            msg: format!("Invalid UTF-8 sequence: {err}"),
         }
     }
 }

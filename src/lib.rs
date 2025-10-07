@@ -295,4 +295,4 @@ pub use self::traits::{
 
 // For buffer! macros
 #[doc(hidden)]
-pub use paste::paste;
+pub use netlink_packet_core_paste::paste;
