@@ -12,7 +12,7 @@ repository = "https://github.com/rust-netlink/netlink-packet-core"
 description = "netlink packet types"
 
 [dependencies]
-paste = "1"
+pastey = "0.2"
 
 [dev-dependencies]
 netlink-packet-route = "0.13.0"

@@ -5,7 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
-use paste::paste;
+use pastey::paste;
 
 use crate::DecodeError;
 
