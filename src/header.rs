@@ -20,7 +20,6 @@ use crate::{
 /// +----------------+----------------+----------------+----------------+
 /// ```
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
-#[non_exhaustive]
 pub struct NetlinkHeader {
     /// Length of the netlink packet, including the header and the payload
     pub length: u32,
