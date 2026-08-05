@@ -1,4 +1,14 @@
 # Changelog
+## [0.8.2] - 2026-08-05
+### Breaking changes
+ - N/A
+
+### New features
+ - Add EthernetProtocol. (09b83bb)
+
+### Bug fixes
+ - N/A
+
 ## [0.8.1] - 2025-09-18
 ### Breaking changes
  - N/A
