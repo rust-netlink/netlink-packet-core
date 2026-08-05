@@ -249,6 +249,7 @@ mod constants;
 mod done;
 mod error;
 mod header;
+mod mac;
 mod message;
 mod nla;
 mod parsers;
@@ -267,6 +268,7 @@ pub use self::constants::{
 pub use self::done::{DoneBuffer, DoneMessage};
 pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
 pub use self::header::NetlinkHeader;
+pub use self::mac::EthernetProtocol;
 pub use self::message::NetlinkMessage;
 pub use self::nla::{
     DefaultNla, Nla, NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED,
