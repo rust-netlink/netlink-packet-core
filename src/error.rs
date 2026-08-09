@@ -9,7 +9,18 @@ const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
 
 pub trait ErrorContext<T: std::fmt::Display> {
+    /// Attach context to an error.
     fn context(self, msg: T) -> Self;
+
+    /// Attach context lazily, so the message is only built when
+    /// there is actually an error to attach it to.
+    fn with_context<F>(self, f: F) -> Self
+    where
+        F: FnOnce() -> T,
+        Self: Sized,
+    {
+        self.context(f())
+    }
 }
 
 #[derive(Debug)]
@@ -33,6 +44,17 @@ where
         match self {
             Ok(t) => Ok(t),
             Err(e) => Err(e.context(msg)),
+        }
+    }
+
+    /// Only render the error on the Err case
+    fn with_context<F>(self, f: F) -> Result<T, DecodeError>
+    where
+        F: FnOnce() -> M,
+    {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(e.context(f())),
         }
     }
 }
