@@ -66,6 +66,8 @@ impl<T: AsRef<[u8]> + ?Sized> Parseable<NetlinkBuffer<&T>> for NetlinkHeader {
     }
 }
 
+// test data are using hard coded little endian byte order, not for big-endian
+#[cfg(not(target_endian = "big"))]
 #[cfg(test)]
 mod tests {
     use super::*;
