@@ -1,13 +1,13 @@
 # Changelog
-## [Unreleased]
+## [0.9.0] - 2026-08-18
 ### Breaking changes
- - Remove the `buffer!` macro.
+ - Remove `buffer!` macros and `paste` dependency. (aa5e7ed)
 
 ### New features
- - N/A
+ - Add lazy ErrorContext::with_context. (4fc434c)
 
 ### Bug fixes
- - N/A
+ - Disable tests on big-endian targets. (818cbeb)
 
 ## [0.8.2] - 2026-08-05
 ### Breaking changes
