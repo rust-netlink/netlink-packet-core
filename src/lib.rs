@@ -255,8 +255,6 @@ mod nla;
 mod parsers;
 mod payload;
 mod traits;
-#[macro_use]
-mod macros;
 
 pub use self::buffer::NetlinkBuffer;
 pub use self::constants::{
@@ -294,7 +292,3 @@ pub use self::traits::{
     Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
     ParseableParametrized,
 };
-
-// For buffer! macros
-#[doc(hidden)]
-pub use paste::paste;

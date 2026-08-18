@@ -1,4 +1,14 @@
 # Changelog
+## [Unreleased]
+### Breaking changes
+ - Remove the `buffer!` macro.
+
+### New features
+ - N/A
+
+### Bug fixes
+ - N/A
+
 ## [0.8.2] - 2026-08-05
 ### Breaking changes
  - N/A
