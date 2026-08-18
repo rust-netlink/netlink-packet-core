@@ -5,8 +5,6 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
-use paste::paste;
-
 use crate::DecodeError;
 
 pub fn parse_mac(payload: &[u8]) -> Result<[u8; 6], DecodeError> {
@@ -89,102 +87,153 @@ pub fn parse_i8(payload: &[u8]) -> Result<i8, DecodeError> {
 }
 
 macro_rules! gen_int_parser {
-    ( $($data_type:ty,)+ ) => {
+    (
         $(
-
-            paste! {
-                pub fn [<parse_ $data_type >](
-                    payload: &[u8]
-                ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
-                        return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
-                            payload.len(),
-                        ));
-                    }
-                    let mut data = [0u8; size_of::<$data_type>()];
-                    data.copy_from_slice(payload);
-                    Ok(<$data_type>::from_ne_bytes(data))
+            $parse:ident, $parse_be:ident, $parse_le:ident,
+            $emit:ident, $emit_le:ident, $emit_be:ident,
+            $data_type:ty,
+        )+
+    ) => {
+        $(
+            pub fn $parse(payload: &[u8]) -> Result<$data_type, DecodeError> {
+                if payload.len() != size_of::<$data_type>() {
+                    return Err(DecodeError::invalid_number(
+                        size_of::<$data_type>(),
+                        payload.len(),
+                    ));
                 }
+                let mut data = [0u8; size_of::<$data_type>()];
+                data.copy_from_slice(payload);
+                Ok(<$data_type>::from_ne_bytes(data))
+            }
 
-                pub fn [<parse_ $data_type _be>](
-                    payload: &[u8]
-                ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
-                        return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
-                            payload.len(),
-                        ));
-                    }
-                    let mut data = [0u8; size_of::<$data_type>()];
-                    data.copy_from_slice(payload);
-                    Ok(<$data_type>::from_be_bytes(data))
+            pub fn $parse_be(payload: &[u8]) -> Result<$data_type, DecodeError> {
+                if payload.len() != size_of::<$data_type>() {
+                    return Err(DecodeError::invalid_number(
+                        size_of::<$data_type>(),
+                        payload.len(),
+                    ));
                 }
+                let mut data = [0u8; size_of::<$data_type>()];
+                data.copy_from_slice(payload);
+                Ok(<$data_type>::from_be_bytes(data))
+            }
 
-                pub fn [<parse_ $data_type _le>](
-                    payload: &[u8]
-                ) -> Result<$data_type, DecodeError> {
-                    if payload.len() != size_of::<$data_type>() {
-                        return Err(DecodeError::invalid_number(
-                            size_of::<$data_type>(),
-                            payload.len(),
-                        ));
-                    }
-                    let mut data = [0u8; size_of::<$data_type>()];
-                    data.copy_from_slice(payload);
-                    Ok(<$data_type>::from_le_bytes(data))
+            pub fn $parse_le(payload: &[u8]) -> Result<$data_type, DecodeError> {
+                if payload.len() != size_of::<$data_type>() {
+                    return Err(DecodeError::invalid_number(
+                        size_of::<$data_type>(),
+                        payload.len(),
+                    ));
                 }
+                let mut data = [0u8; size_of::<$data_type>()];
+                data.copy_from_slice(payload);
+                Ok(<$data_type>::from_le_bytes(data))
+            }
 
-                pub fn [<emit_ $data_type >](
-                    buf: &mut [u8],
-                    value: $data_type,
-                ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
-                        return Err(DecodeError::buffer_too_small(
-                            buf.len(),
-                            size_of::<$data_type>(),
-                        ));
-                    }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
-                        &value.to_ne_bytes()
-                    );
-                    Ok(())
+            pub fn $emit(
+                buf: &mut [u8],
+                value: $data_type,
+            ) -> Result<(), DecodeError> {
+                if buf.len() < size_of::<$data_type>() {
+                    return Err(DecodeError::buffer_too_small(
+                        buf.len(),
+                        size_of::<$data_type>(),
+                    ));
                 }
+                buf[..size_of::<$data_type>()]
+                    .copy_from_slice(&value.to_ne_bytes());
+                Ok(())
+            }
 
-                pub fn [<emit_ $data_type _le>](
-                    buf: &mut [u8],
-                    value: $data_type,
-                ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
-                        return Err(DecodeError::buffer_too_small(
-                            buf.len(),
-                            size_of::<$data_type>(),
-                        ));
-                    }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
-                        &value.to_le_bytes()
-                    );
-                    Ok(())
+            pub fn $emit_le(
+                buf: &mut [u8],
+                value: $data_type,
+            ) -> Result<(), DecodeError> {
+                if buf.len() < size_of::<$data_type>() {
+                    return Err(DecodeError::buffer_too_small(
+                        buf.len(),
+                        size_of::<$data_type>(),
+                    ));
                 }
+                buf[..size_of::<$data_type>()]
+                    .copy_from_slice(&value.to_le_bytes());
+                Ok(())
+            }
 
-                pub fn [<emit_ $data_type _be>](
-                    buf: &mut [u8],
-                    value: $data_type,
-                ) -> Result<(), DecodeError> {
-                    if buf.len() < size_of::<$data_type>() {
-                        return Err(DecodeError::buffer_too_small(
-                            buf.len(),
-                            size_of::<$data_type>(),
-                        ));
-                    }
-                    buf[..size_of::<$data_type>()].copy_from_slice(
-                        &value.to_be_bytes()
-                    );
-                    Ok(())
+            pub fn $emit_be(
+                buf: &mut [u8],
+                value: $data_type,
+            ) -> Result<(), DecodeError> {
+                if buf.len() < size_of::<$data_type>() {
+                    return Err(DecodeError::buffer_too_small(
+                        buf.len(),
+                        size_of::<$data_type>(),
+                    ));
                 }
+                buf[..size_of::<$data_type>()]
+                    .copy_from_slice(&value.to_be_bytes());
+                Ok(())
             }
         )+
     }
 }
 
-gen_int_parser!(u16, u32, u64, u128, i16, i32, i64, i128,);
+gen_int_parser!(
+    parse_u16,
+    parse_u16_be,
+    parse_u16_le,
+    emit_u16,
+    emit_u16_le,
+    emit_u16_be,
+    u16,
+    parse_u32,
+    parse_u32_be,
+    parse_u32_le,
+    emit_u32,
+    emit_u32_le,
+    emit_u32_be,
+    u32,
+    parse_u64,
+    parse_u64_be,
+    parse_u64_le,
+    emit_u64,
+    emit_u64_le,
+    emit_u64_be,
+    u64,
+    parse_u128,
+    parse_u128_be,
+    parse_u128_le,
+    emit_u128,
+    emit_u128_le,
+    emit_u128_be,
+    u128,
+    parse_i16,
+    parse_i16_be,
+    parse_i16_le,
+    emit_i16,
+    emit_i16_le,
+    emit_i16_be,
+    i16,
+    parse_i32,
+    parse_i32_be,
+    parse_i32_le,
+    emit_i32,
+    emit_i32_le,
+    emit_i32_be,
+    i32,
+    parse_i64,
+    parse_i64_be,
+    parse_i64_le,
+    emit_i64,
+    emit_i64_le,
+    emit_i64_be,
+    i64,
+    parse_i128,
+    parse_i128_be,
+    parse_i128_le,
+    emit_i128,
+    emit_i128_le,
+    emit_i128_be,
+    i128,
+);
