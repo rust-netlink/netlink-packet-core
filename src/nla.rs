@@ -25,7 +25,7 @@ pub const NLA_HEADER_SIZE: usize = 4;
 #[macro_export]
 macro_rules! nla_align {
     ($len: expr) => {
-        ($len + NLA_ALIGNTO - 1) & !(NLA_ALIGNTO - 1)
+        ($len + $crate::NLA_ALIGNTO - 1) & !($crate::NLA_ALIGNTO - 1)
     };
 }
 
