@@ -105,7 +105,7 @@ pub const NETLINK_HEADER_LEN: usize = PAYLOAD.start;
 /// initialized to 0, so `new_checked()` would return an error.
 #[non_exhaustive]
 pub struct NetlinkBuffer<T> {
-    pub buffer: T,
+    buffer: T,
 }
 
 // Prevent some doc strings to be formatted, since we cannot add the
@@ -207,6 +207,11 @@ impl<T: AsRef<[u8]>> NetlinkBuffer<T> {
         self.buffer
     }
 
+    /// Return a reference to the underlying buffer
+    pub fn inner(&self) -> &T {
+        &self.buffer
+    }
+
     /// Return the `length` field
     ///
     /// # Panic
@@ -259,6 +264,11 @@ impl<T: AsRef<[u8]>> NetlinkBuffer<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
+    /// Return a mutable reference to the underlying buffer
+    pub fn inner_mut(&mut self) -> &mut T {
+        &mut self.buffer
+    }
+
     /// Set the packet header `length` field
     ///
     /// # Panic
