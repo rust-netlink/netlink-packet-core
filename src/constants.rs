@@ -32,6 +32,9 @@ pub const NLM_F_EXCL: u16 = 512;
 pub const NLM_F_CREATE: u16 = 1024;
 /// Add to the end of the object list.
 pub const NLM_F_APPEND: u16 = 2048;
+/// Delete multiple objects. Modifier for delete requests (requires
+/// kernel 5.17 or newer).
+pub const NLM_F_BULK: u16 = 512;
 
 /// Do not delete recursively
 pub const NLM_F_NONREC: u16 = 256;

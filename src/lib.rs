@@ -260,10 +260,10 @@ mod traits;
 
 pub use self::buffer::NetlinkBuffer;
 pub use self::constants::{
-    NLM_F_ACK, NLM_F_ACK_TLVS, NLM_F_APPEND, NLM_F_ATOMIC, NLM_F_CAPPED,
-    NLM_F_CREATE, NLM_F_DUMP, NLM_F_DUMP_FILTERED, NLM_F_DUMP_INTR, NLM_F_ECHO,
-    NLM_F_EXCL, NLM_F_MATCH, NLM_F_MULTIPART, NLM_F_NONREC, NLM_F_REPLACE,
-    NLM_F_REQUEST, NLM_F_ROOT,
+    NLM_F_ACK, NLM_F_ACK_TLVS, NLM_F_APPEND, NLM_F_ATOMIC, NLM_F_BULK,
+    NLM_F_CAPPED, NLM_F_CREATE, NLM_F_DUMP, NLM_F_DUMP_FILTERED,
+    NLM_F_DUMP_INTR, NLM_F_ECHO, NLM_F_EXCL, NLM_F_MATCH, NLM_F_MULTIPART,
+    NLM_F_NONREC, NLM_F_REPLACE, NLM_F_REQUEST, NLM_F_ROOT,
 };
 pub use self::done::{DoneBuffer, DoneMessage};
 pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
