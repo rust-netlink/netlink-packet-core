@@ -10,8 +10,8 @@ pub const NLMSG_NOOP: u16 = 1;
 /// This can be looked at as a NACK and typically it is from FEC to CPC.
 pub const NLMSG_ERROR: u16 = 2;
 /// The message terminates a multipart message.
-/// Data lost
 pub const NLMSG_DONE: u16 = 3;
+/// Data lost.
 pub const NLMSG_OVERRUN: u16 = 4;
 pub const NLMSG_ALIGNTO: u16 = 4;
 

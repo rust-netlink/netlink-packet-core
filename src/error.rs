@@ -2,7 +2,9 @@
 
 use std::{fmt, io, mem::size_of, num::NonZeroI32};
 
-use crate::{emit_i32, parse_i32, Emitable, Field, Parseable, Rest};
+use crate::{
+    emit_i32, parse_i32, Emitable, Field, Parseable, Rest, NLA_HEADER_SIZE,
+};
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
@@ -151,7 +153,7 @@ impl DecodeError {
         Self {
             msg: format!(
                 "NLA has invalid length: {nla_len} (should be at least \
-                 {buffer_len} bytes)"
+                 {NLA_HEADER_SIZE} bytes, buffer is {buffer_len} bytes)"
             ),
         }
     }
