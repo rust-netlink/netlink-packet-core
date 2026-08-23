@@ -22,7 +22,6 @@ pub const NLA_ALIGNTO: usize = 4;
 /// NlA(RTA) header size. (unsigned short rta_len) + (unsigned short rta_type)
 pub const NLA_HEADER_SIZE: usize = 4;
 
-#[macro_export]
 macro_rules! nla_align {
     ($len: expr) => {
         ($len + $crate::NLA_ALIGNTO - 1) & !($crate::NLA_ALIGNTO - 1)
