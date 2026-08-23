@@ -302,7 +302,10 @@ impl ErrorMessage {
     /// convert into [`std::io::Error`](https://doc.rust-lang.org/std/io/struct.Error.html)
     /// using the absolute value from errno code
     pub fn to_io(&self) -> io::Error {
-        io::Error::from_raw_os_error(self.raw_code().abs())
+        // Use `saturating_abs()` as `i32::MIN` has no positive `i32`
+        // representation and `abs()` would panic on such malformed
+        // netlink error code.
+        io::Error::from_raw_os_error(self.raw_code().saturating_abs())
     }
 }
 
@@ -371,5 +374,21 @@ mod tests {
             msg
         );
         assert_eq!(msg.raw_code(), ERROR_CODE.get());
+    }
+
+    #[test]
+    fn nack_with_min_code_not_panic() {
+        let mut bytes = vec![0, 0, 0, 0];
+        emit_i32(&mut bytes, i32::MIN).unwrap();
+        let msg = ErrorBuffer::new_checked(&bytes)
+            .and_then(|buf| ErrorMessage::parse(&buf))
+            .expect("failed to parse NLMSG_ERROR");
+        assert_eq!(msg.code, NonZeroI32::new(i32::MIN));
+        assert_eq!(msg.raw_code(), i32::MIN);
+
+        let io_err = msg.to_io();
+        assert_eq!(io_err.raw_os_error(), Some(i32::MAX));
+        // `Display` goes through `to_io()`, must not panic either.
+        assert_eq!(msg.to_string(), io_err.to_string());
     }
 }
