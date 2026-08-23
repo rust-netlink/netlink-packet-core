@@ -59,16 +59,15 @@ pub fn parse_ip(payload: &[u8]) -> Result<IpAddr, DecodeError> {
 }
 
 pub fn parse_string(payload: &[u8]) -> Result<String, DecodeError> {
-    if payload.is_empty() {
-        return Ok(String::new());
-    }
-    // iproute2 is a bit inconsistent with null-terminated strings.
-    let slice = if payload[payload.len() - 1] == 0 {
-        &payload[..payload.len() - 1]
-    } else {
-        &payload[..payload.len()]
-    };
-    let s = String::from_utf8(slice.to_vec())?;
+    // Kernel netlink strings are NUL terminated: discard everything
+    // from the first NUL byte onward. Tolerate a missing terminating
+    // NUL as iproute2 is a bit inconsistent with null-terminated
+    // strings.
+    let end = payload
+        .iter()
+        .position(|b| *b == 0)
+        .unwrap_or(payload.len());
+    let s = String::from_utf8(payload[..end].to_vec())?;
     Ok(s)
 }
 
@@ -237,3 +236,21 @@ gen_int_parser!(
     emit_i128_be,
     i128,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_string() {
+        assert_eq!(parse_string(b"").unwrap(), "");
+        assert_eq!(parse_string(b"eth0").unwrap(), "eth0");
+        assert_eq!(parse_string(b"eth0\0").unwrap(), "eth0");
+        // Discard anything after the first NUL.
+        assert_eq!(parse_string(b"eth0\0trash").unwrap(), "eth0");
+        assert_eq!(parse_string(b"eth0\0\0").unwrap(), "eth0");
+        assert_eq!(parse_string(b"\0").unwrap(), "");
+        assert_eq!(parse_string(b"\0trash").unwrap(), "");
+        assert!(parse_string(b"\xff\xfe").is_err());
+    }
+}
