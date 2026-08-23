@@ -130,14 +130,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NlaBuffer<T> {
     }
 
     pub fn set_nested_flag(&mut self) {
-        let kind = self.kind();
+        // Do not use `self.kind()` as it masks out the NLA flag bits,
+        // which would clear an already set NLA_F_NET_BYTEORDER.
         let data = self.buffer.as_mut();
+        let kind = parse_u16(&data[TYPE]).unwrap();
         emit_u16(&mut data[TYPE], kind | NLA_F_NESTED).unwrap()
     }
 
     pub fn set_network_byte_order_flag(&mut self) {
-        let kind = self.kind();
+        // Do not use `self.kind()` as it masks out the NLA flag bits,
+        // which would clear an already set NLA_F_NESTED.
         let data = self.buffer.as_mut();
+        let kind = parse_u16(&data[TYPE]).unwrap();
         emit_u16(&mut data[TYPE], kind | NLA_F_NET_BYTEORDER).unwrap()
     }
 
@@ -356,6 +360,55 @@ mod tests {
             [attr_is_net, attr_is_nest]
         );
         assert_eq!([attr_is_net, attr_is_nest], [emit_is_net, emit_is_nest]);
+    }
+
+    #[test]
+    fn nested_and_network_byteorder() {
+        let kind = 0x0005 | NLA_F_NESTED | NLA_F_NET_BYTEORDER;
+        let nla = DefaultNla::new(kind, vec![0x00, 0x00, 0x0e, 0x10]);
+        assert!(nla.is_nested());
+        assert!(nla.is_network_byteorder());
+
+        let mut emitted_buffer = vec![0; nla.buffer_len()];
+        nla.emit(&mut emitted_buffer);
+
+        let emit = NlaBuffer::new(&emitted_buffer);
+        assert_eq!(emit.kind(), 0x0005);
+        assert!(emit.nested_flag());
+        assert!(emit.network_byte_order_flag());
+
+        // The parse -> emit round trip must preserve both flags.
+        let reparsed = DefaultNla::parse(&emit).unwrap();
+        assert_eq!(reparsed.kind(), kind);
+        let mut reemitted_buffer = vec![0; reparsed.buffer_len()];
+        reparsed.emit(&mut reemitted_buffer);
+        assert_eq!(emitted_buffer, reemitted_buffer);
+    }
+
+    #[test]
+    fn set_flags_preserve_each_other() {
+        for set_nested_first in [true, false] {
+            let mut buf = vec![0u8; 8];
+            {
+                let mut nla = NlaBuffer::new(&mut buf);
+                nla.set_kind(0x0005);
+                nla.set_length(8);
+                if set_nested_first {
+                    nla.set_nested_flag();
+                    nla.set_network_byte_order_flag();
+                } else {
+                    nla.set_network_byte_order_flag();
+                    nla.set_nested_flag();
+                }
+            }
+            let nla = NlaBuffer::new(&buf[..]);
+            assert_eq!(nla.kind(), 0x0005);
+            assert!(nla.nested_flag(), "nested first: {set_nested_first}");
+            assert!(
+                nla.network_byte_order_flag(),
+                "nested first: {set_nested_first}"
+            );
+        }
     }
 
     fn get_len() -> usize {
