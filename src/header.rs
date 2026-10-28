@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable,
+    append_u16, append_u32, DecodeError, Emitable, EncodeError, NetlinkBuffer,
+    Parseable,
 };
 
 /// A Netlink header representation. A netlink header has the following
@@ -39,18 +40,19 @@ pub struct NetlinkHeader {
     pub port_number: u32,
 }
 
-impl Emitable for NetlinkHeader {
-    fn buffer_len(&self) -> usize {
-        NETLINK_HEADER_LEN
-    }
+impl NetlinkHeader {
+    /// Length of the netlink header in bytes.
+    pub const LEN: usize = crate::buffer::NETLINK_HEADER_LEN;
+}
 
-    fn emit(&self, buffer: &mut [u8]) {
-        let mut buffer = NetlinkBuffer::new(buffer);
-        buffer.set_message_type(self.message_type);
-        buffer.set_length(self.length);
-        buffer.set_flags(self.flags);
-        buffer.set_sequence_number(self.sequence_number);
-        buffer.set_port_number(self.port_number);
+impl Emitable for NetlinkHeader {
+    fn emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_u32(out, self.length);
+        append_u16(out, self.message_type);
+        append_u16(out, self.flags);
+        append_u32(out, self.sequence_number);
+        append_u32(out, self.port_number);
+        Ok(())
     }
 }
 
@@ -110,9 +112,9 @@ mod tests {
             flags: NLM_F_ROOT | NLM_F_REQUEST | NLM_F_MATCH,
             port_number: 0,
         };
-        assert_eq!(repr.buffer_len(), 16);
-        let mut buf = [0; 16];
-        repr.emit(&mut buf[..]);
+        let mut buf = Vec::new();
+        repr.emit_into(&mut buf).unwrap();
+        assert_eq!(buf.len(), 16);
         assert_eq!(&buf[..], &IP_LINK_SHOW_PKT[..16]);
     }
 }
