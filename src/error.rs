@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-use std::{fmt, io, mem::size_of, num::NonZeroI32};
+use std::{fmt, io, num::NonZeroI32};
 
 use crate::{
-    emit_i32, parse_i32, Emitable, Field, Parseable, Rest, NLA_HEADER_SIZE,
+    append_bytes, append_i32, emit_i32, parse_i32, Emitable, Field, Parseable,
+    Rest, NLA_HEADER_SIZE,
 };
 
 const CODE: Field = 0..4;
@@ -91,6 +92,140 @@ impl std::fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
+/// The category of an [`EncodeError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EncodeErrorKind {
+    /// The value cannot be represented in the netlink wire format, for
+    /// example because it exceeds the 16-bit attribute length or the 32-bit
+    /// message length.
+    TooLarge,
+    /// The value is invalid for its protocol or attribute type.
+    InvalidValue,
+    /// The destination buffer is smaller than the encoded value.
+    BufferTooSmall,
+    /// Please report this bug to rust-netlink team or request new enum
+    /// variant.
+    Bug,
+}
+
+impl fmt::Display for EncodeErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooLarge => f.write_str("value too large"),
+            Self::InvalidValue => f.write_str("invalid value"),
+            Self::BufferTooSmall => f.write_str("buffer too small"),
+            Self::Bug => f.write_str("bug"),
+        }
+    }
+}
+
+/// Error returned when encoding a netlink value fails.
+///
+/// This is the fallible counterpart of [`DecodeError`](crate::DecodeError),
+/// used by [`Emitable`](crate::Emitable) and
+/// [`Nla`](crate::Nla).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct EncodeError {
+    pub kind: EncodeErrorKind,
+    pub msg: String,
+}
+
+impl EncodeError {
+    pub fn new(kind: EncodeErrorKind, msg: impl Into<String>) -> Self {
+        Self {
+            kind,
+            msg: msg.into(),
+        }
+    }
+
+    pub fn too_large(msg: impl Into<String>) -> Self {
+        Self {
+            kind: EncodeErrorKind::TooLarge,
+            msg: msg.into(),
+        }
+    }
+
+    pub fn nla_value_too_long(
+        kind: u16,
+        len: usize,
+        maximum_length: usize,
+    ) -> Self {
+        Self::too_large(format!(
+            "netlink attribute type {kind} value is too long: {len} > \
+             {maximum_length} bytes"
+        ))
+    }
+
+    pub fn buffer_too_small(buffer_len: usize, minimum_length: usize) -> Self {
+        Self {
+            kind: EncodeErrorKind::BufferTooSmall,
+            msg: format!(
+                "buffer has length {buffer_len}, but at least \
+                 {minimum_length} bytes are required"
+            ),
+        }
+    }
+
+    pub fn length_overflow(what: &str) -> Self {
+        Self::too_large(format!("{what} length overflow"))
+    }
+
+    pub fn message_too_long(len: usize, maximum_length: usize) -> Self {
+        Self::too_large(format!(
+            "netlink message is too long: {len} > {maximum_length} bytes"
+        ))
+    }
+
+    pub fn kind(&self) -> EncodeErrorKind {
+        self.kind
+    }
+
+    pub fn is_too_large(&self) -> bool {
+        self.kind == EncodeErrorKind::TooLarge
+    }
+}
+
+impl<T: std::fmt::Display> ErrorContext<T> for EncodeError {
+    fn context(self, msg: T) -> Self {
+        Self {
+            kind: self.kind,
+            msg: format!("{} caused by {}", msg, self.msg),
+        }
+    }
+}
+
+impl<T, M> ErrorContext<M> for Result<T, EncodeError>
+where
+    M: std::fmt::Display,
+{
+    fn context(self, msg: M) -> Result<T, EncodeError> {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(e.context(msg)),
+        }
+    }
+
+    fn with_context<F>(self, f: F) -> Result<T, EncodeError>
+    where
+        F: FnOnce() -> M,
+    {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(e.context(f())),
+        }
+    }
+}
+
+impl std::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.kind, self.msg)
+    }
+}
+
+impl std::error::Error for EncodeError {}
+
 impl DecodeError {
     pub fn invalid_buffer(
         name: &str,
@@ -162,7 +297,7 @@ impl DecodeError {
         Self {
             msg: format!(
                 "Buffer too small: {buffer_len} (should be at least \
-                 {value_len} bytes"
+                 {value_len} bytes)"
             ),
         }
     }
@@ -265,13 +400,10 @@ pub struct ErrorMessage {
 }
 
 impl Emitable for ErrorMessage {
-    fn buffer_len(&self) -> usize {
-        size_of::<i32>() + self.header.len()
-    }
-    fn emit(&self, buffer: &mut [u8]) {
-        let mut buffer = ErrorBuffer::new(buffer);
-        buffer.set_code(self.raw_code());
-        buffer.payload_mut().copy_from_slice(&self.header)
+    fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_i32(out, self.raw_code());
+        append_bytes(out, &self.header);
+        Ok(())
     }
 }
 
@@ -330,6 +462,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn encode_error_display_includes_kind() {
+        assert_eq!(EncodeErrorKind::TooLarge.to_string(), "value too large");
+        assert_eq!(EncodeErrorKind::InvalidValue.to_string(), "invalid value");
+        assert_eq!(
+            EncodeErrorKind::BufferTooSmall.to_string(),
+            "buffer too small"
+        );
+        assert_eq!(EncodeErrorKind::Bug.to_string(), "bug");
+
+        let error = EncodeError::too_large("attribute is 70000 bytes");
+        assert_eq!(
+            error.to_string(),
+            "value too large: attribute is 70000 bytes"
+        );
+    }
+
+    #[test]
     fn into_io_error() {
         let io_err = io::Error::from_raw_os_error(95);
         let err_msg = ErrorMessage {
@@ -361,21 +510,20 @@ mod tests {
 
     #[test]
     fn parse_nack() {
-        // SAFETY: value is non-zero.
-        const ERROR_CODE: NonZeroI32 = NonZeroI32::new(-1234).unwrap();
+        let error_code = NonZeroI32::new(-1234).unwrap();
         let mut bytes = vec![0, 0, 0, 0];
-        emit_i32(&mut bytes, ERROR_CODE.get()).unwrap();
+        emit_i32(&mut bytes, error_code.get()).unwrap();
         let msg = ErrorBuffer::new_checked(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(
             ErrorMessage {
-                code: Some(ERROR_CODE),
+                code: Some(error_code),
                 header: Vec::new()
             },
             msg
         );
-        assert_eq!(msg.raw_code(), ERROR_CODE.get());
+        assert_eq!(msg.raw_code(), error_code.get());
     }
 
     #[test]

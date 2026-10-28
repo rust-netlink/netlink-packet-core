@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable,
+    append_u16, append_u32, DecodeError, Emitable, EncodeError, NetlinkBuffer,
+    Parseable,
 };
 
 /// A Netlink header representation. A netlink header has the following
@@ -23,10 +24,20 @@ use crate::{
 #[non_exhaustive]
 pub struct NetlinkHeader {
     /// Length of the netlink packet, including the header and the payload
+    ///
+    /// When a [`NetlinkMessage`](crate::NetlinkMessage) is emitted this field
+    /// is not used: the length is computed from the encoded payload and is not
+    /// written back into the in-memory header. Emitting a `NetlinkHeader` on
+    /// its own writes this value verbatim.
     pub length: u32,
 
     /// NetlinkMessage type. The meaning of this field depends on the netlink
     /// protocol family in use.
+    ///
+    /// When a [`NetlinkMessage`](crate::NetlinkMessage) is emitted this field
+    /// is not used: the message type is taken from the payload and is not
+    /// written back into the in-memory header. Emitting a `NetlinkHeader` on
+    /// its own writes this value verbatim.
     pub message_type: u16,
 
     /// Flags. It should be set to one of the `NLM_F_*` constants.
@@ -39,18 +50,19 @@ pub struct NetlinkHeader {
     pub port_number: u32,
 }
 
-impl Emitable for NetlinkHeader {
-    fn buffer_len(&self) -> usize {
-        NETLINK_HEADER_LEN
-    }
+impl NetlinkHeader {
+    /// Length of the netlink header in bytes.
+    pub const LEN: usize = crate::buffer::NETLINK_HEADER_LEN;
+}
 
-    fn emit(&self, buffer: &mut [u8]) {
-        let mut buffer = NetlinkBuffer::new(buffer);
-        buffer.set_message_type(self.message_type);
-        buffer.set_length(self.length);
-        buffer.set_flags(self.flags);
-        buffer.set_sequence_number(self.sequence_number);
-        buffer.set_port_number(self.port_number);
+impl Emitable for NetlinkHeader {
+    fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_u32(out, self.length);
+        append_u16(out, self.message_type);
+        append_u16(out, self.flags);
+        append_u32(out, self.sequence_number);
+        append_u32(out, self.port_number);
+        Ok(())
     }
 }
 
@@ -110,9 +122,9 @@ mod tests {
             flags: NLM_F_ROOT | NLM_F_REQUEST | NLM_F_MATCH,
             port_number: 0,
         };
-        assert_eq!(repr.buffer_len(), 16);
-        let mut buf = [0; 16];
-        repr.emit(&mut buf[..]);
+        let mut buf = Vec::new();
+        repr.emit(&mut buf).unwrap();
+        assert_eq!(buf.len(), 16);
         assert_eq!(&buf[..], &IP_LINK_SHOW_PKT[..16]);
     }
 }

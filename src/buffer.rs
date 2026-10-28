@@ -124,7 +124,7 @@ impl<T: AsRef<[u8]>> NetlinkBuffer<T> {
     // the attribute directly in the doctest
     #[rustfmt::skip]
     /// Check the length of the given buffer and make sure it's big enough so that trying to access
-    /// packet fields won't panic. If the buffer is big enough, create a new `NewlinkBuffer` that
+    /// packet fields won't panic. If the buffer is big enough, create a new `NetlinkBuffer` that
     /// uses this buffer as storage.
     ///
     /// # Example
@@ -332,8 +332,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> NetlinkBuffer<&'a T> {
     ///
     /// This panic is the underlying storage is too small or if the `length`
     /// field in the header is set to a value that exceeds the storage
-    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
-    /// new_checked))
+    /// length (see [`NetlinkBuffer::new_checked`])
     pub fn payload(&self) -> &'a [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_ref();
@@ -348,8 +347,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NetlinkBuffer<&mut T> {
     ///
     /// This panic is the underlying storage is too small or if the `length`
     /// field in the header is set to a value that exceeds the storage
-    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
-    /// new_checked))
+    /// length (see [`NetlinkBuffer::new_checked`])
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_mut();
