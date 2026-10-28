@@ -30,7 +30,8 @@
 //!
 //! ```rust,ignore
 //! use netlink_packet_core::{
-//!     NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
+//!     Emitable, NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_DUMP,
+//!     NLM_F_REQUEST,
 //! };
 //! use netlink_packet_route::{link::LinkMessage, RouteNetlinkMessage};
 //!
@@ -39,35 +40,27 @@
 //! let mut header = NetlinkHeader::default();
 //! header.sequence_number = 1;
 //! header.flags = NLM_F_DUMP | NLM_F_REQUEST;
-//! let mut packet = NetlinkMessage::new(
+//! let packet = NetlinkMessage::new(
 //!     header,
 //!     NetlinkPayload::from(RouteNetlinkMessage::GetLink(
 //!         LinkMessage::default(),
 //!     )),
 //! );
 //!
-//! // Before serializing the packet, it is important to call
-//! // finalize() to ensure the header of the message is consistent
-//! // with its payload. Otherwise, a panic may occur when calling
-//! // serialize()
-//! packet.finalize();
-//!
-//! // Prepare a buffer to serialize the packet. Note that we never
-//! // set explicitely `packet.header.length` above. This was done
-//! // automatically when we called `finalize()`
-//! let mut buf = vec![0; packet.header.length as usize];
-//! // Serialize the packet
-//! packet.serialize(&mut buf[..]);
+//! // Serialize the packet. The header length and message type are
+//! // computed during emission.
+//! let mut buf = Vec::new();
+//! packet.emit(&mut buf).unwrap();
 //!
 //! // Deserialize the packet
 //! let deserialized_packet = NetlinkMessage::<RouteNetlinkMessage>::deserialize(&buf)
 //!     .expect("Failed to deserialize message");
 //!
-//! // Normally, the deserialized packet should be exactly the same
-//! // than the serialized one.
-//! assert_eq!(deserialized_packet, packet);
+//! // The serialized header is reconstructed when parsing; the original
+//! // in-memory packet header is not modified by emit().
+//! assert_eq!(deserialized_packet.payload, packet.payload);
 //!
-//! println!("{:?}", packet);
+//! println!("{:?}", deserialized_packet);
 //! ```
 //!
 //! # Example: adding messages for new netlink sub-protocol
@@ -120,7 +113,8 @@
 //!
 //! ```rust
 //! use netlink_packet_core::{
-//!     NetlinkDeserializable, NetlinkHeader, NetlinkMessage, NetlinkPayload, NetlinkSerializable,
+//!     Emitable, NetlinkDeserializable, NetlinkHeader, NetlinkMessage,
+//!     NetlinkPayload, NetlinkSerializable,
 //! };
 //! use std::error::Error;
 //! use std::fmt;
@@ -175,26 +169,27 @@
 //!     }
 //! }
 //!
-//! // NetlinkSerializable implementation
+//! // Emitable provides the wire bytes; NetlinkSerializable provides the
+//! // message type used in the netlink header.
+//! impl Emitable for PingPongMessage {
+//!     fn emit_value(
+//!         &self,
+//!         buffer: &mut Vec<u8>,
+//!     ) -> Result<(), netlink_packet_core::EncodeError> {
+//!         match self {
+//!             PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
+//!                 buffer.extend_from_slice(vec);
+//!             }
+//!         }
+//!         Ok(())
+//!     }
+//! }
+//!
 //! impl NetlinkSerializable for PingPongMessage {
 //!     fn message_type(&self) -> u16 {
 //!         match self {
 //!             PingPongMessage::Ping(_) => PING_MESSAGE,
 //!             PingPongMessage::Pong(_) => PONG_MESSAGE,
-//!         }
-//!     }
-//!
-//!     fn buffer_len(&self) -> usize {
-//!         match self {
-//!             PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => vec.len(),
-//!         }
-//!     }
-//!
-//!     fn serialize(&self, buffer: &mut [u8]) {
-//!         match self {
-//!             PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
-//!                 buffer.copy_from_slice(&vec[..])
-//!             }
 //!         }
 //!     }
 //! }
@@ -211,32 +206,24 @@
 //!
 //! fn main() {
 //!     let ping_pong_message = PingPongMessage::Ping(vec![0, 1, 2, 3]);
-//!     let mut packet = NetlinkMessage::from(ping_pong_message);
+//!     let packet = NetlinkMessage::from(ping_pong_message);
 //!
-//!     // Before serializing the packet, it is very important to call
-//!     // finalize() to ensure the header of the message is consistent
-//!     // with its payload. Otherwise, a panic may occur when calling
-//!     // `serialize()`
-//!     packet.finalize();
-//!
-//!     // Prepare a buffer to serialize the packet. Note that we never
-//!     // set explicitely `packet.header.length` above. This was done
-//!     // automatically when we called `finalize()`
-//!     let mut buf = vec![0; packet.header.length as usize];
-//!     // Serialize the packet
-//!     packet.serialize(&mut buf[..]);
+//!     // Serialize the packet. The header length and message type are
+//!     // computed during emission.
+//!     let mut buf = Vec::new();
+//!     packet.emit(&mut buf).unwrap();
 //!
 //!     // Deserialize the packet
 //!     let deserialized_packet = NetlinkMessage::<PingPongMessage>::deserialize(&buf)
 //!         .expect("Failed to deserialize message");
 //!
-//!     // Normally, the deserialized packet should be exactly the same
-//!     // than the serialized one.
-//!     assert_eq!(deserialized_packet, packet);
+//!     // The serialized header is reconstructed when parsing; the original
+//!     // in-memory packet header is not modified by emit().
+//!     assert_eq!(deserialized_packet.payload, packet.payload);
 //!
 //!     // This should print:
 //!     // NetlinkMessage { header: NetlinkHeader { length: 20, message_type: 18, flags: 0, sequence_number: 0, port_number: 0 }, payload: InnerMessage(Ping([0, 1, 2, 3])) }
-//!     println!("{:?}", packet);
+//!     println!("{:?}", deserialized_packet);
 //! }
 //! ```
 
@@ -266,19 +253,29 @@ pub use self::constants::{
     NLM_F_NONREC, NLM_F_REPLACE, NLM_F_REQUEST, NLM_F_ROOT,
 };
 pub use self::done::{DoneBuffer, DoneMessage};
-pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
+pub use self::error::{
+    DecodeError, EncodeError, EncodeErrorKind, ErrorBuffer, ErrorContext,
+    ErrorMessage,
+};
 pub use self::header::NetlinkHeader;
 pub use self::mac::EthernetProtocol;
 pub use self::message::NetlinkMessage;
 pub use self::nla::{
-    DefaultNla, Nla, NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED,
-    NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_TYPE_MASK,
+    emit_nlas, nla_total_size, DefaultNla, NlaBuffer, NlasIterator,
+    NLA_ALIGNTO, NLA_F_NESTED, NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE,
+    NLA_MAX_VALUE_LEN, NLA_TYPE_MASK,
 };
 pub use self::parsers::{
-    emit_i128, emit_i128_be, emit_i128_le, emit_i16, emit_i16_be, emit_i16_le,
-    emit_i32, emit_i32_be, emit_i32_le, emit_i64, emit_i64_be, emit_i64_le,
-    emit_u128, emit_u128_be, emit_u128_le, emit_u16, emit_u16_be, emit_u16_le,
-    emit_u32, emit_u32_be, emit_u32_le, emit_u64, emit_u64_be, emit_u64_le,
+    append_bytes, append_i128, append_i128_be, append_i128_le, append_i16,
+    append_i16_be, append_i16_le, append_i32, append_i32_be, append_i32_le,
+    append_i64, append_i64_be, append_i64_le, append_i8, append_u128,
+    append_u128_be, append_u128_le, append_u16, append_u16_be, append_u16_le,
+    append_u32, append_u32_be, append_u32_le, append_u64, append_u64_be,
+    append_u64_le, append_u8, emit_bytes, emit_i128, emit_i128_be,
+    emit_i128_le, emit_i16, emit_i16_be, emit_i16_le, emit_i32, emit_i32_be,
+    emit_i32_le, emit_i64, emit_i64_be, emit_i64_le, emit_i8, emit_u128,
+    emit_u128_be, emit_u128_le, emit_u16, emit_u16_be, emit_u16_le, emit_u32,
+    emit_u32_be, emit_u32_le, emit_u64, emit_u64_be, emit_u64_le, emit_u8,
     parse_i128, parse_i128_be, parse_i128_le, parse_i16, parse_i16_be,
     parse_i16_le, parse_i32, parse_i32_be, parse_i32_le, parse_i64,
     parse_i64_be, parse_i64_le, parse_i8, parse_ip, parse_ipv6, parse_mac,
@@ -291,6 +288,6 @@ pub use self::payload::{
     NLMSG_OVERRUN,
 };
 pub use self::traits::{
-    Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
+    Emitable, NetlinkDeserializable, NetlinkSerializable, Nla, Parseable,
     ParseableParametrized,
 };

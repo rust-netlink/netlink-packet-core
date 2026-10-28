@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-use std::mem::size_of;
-
 use crate::{
-    emit_i32, parse_i32, DecodeError, Emitable, ErrorContext, Field, Parseable,
-    Rest,
+    append_bytes, append_i32, emit_i32, parse_i32, DecodeError, Emitable,
+    EncodeError, ErrorContext, Field, Parseable, Rest,
 };
 
 const CODE: Field = 0..4;
@@ -87,15 +85,10 @@ pub struct DoneMessage {
 }
 
 impl Emitable for DoneMessage {
-    fn buffer_len(&self) -> usize {
-        size_of::<i32>() + self.extended_ack.len()
-    }
-    fn emit(&self, buffer: &mut [u8]) {
-        let mut buffer = DoneBuffer::new(buffer);
-        buffer.set_code(self.code);
-        buffer
-            .extended_ack_mut()
-            .copy_from_slice(&self.extended_ack);
+    fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_i32(out, self.code);
+        append_bytes(out, &self.extended_ack);
+        Ok(())
     }
 }
 
@@ -112,6 +105,8 @@ impl<T: AsRef<[u8]>> Parseable<DoneBuffer<&T>> for DoneMessage {
 #[cfg(not(target_endian = "big"))]
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use super::*;
 
     #[test]
@@ -121,11 +116,9 @@ mod tests {
             extended_ack: vec![1, 2, 3],
         };
 
-        let len = expected.buffer_len();
-        assert_eq!(len, size_of::<i32>() + expected.extended_ack.len());
-
-        let mut buf = vec![0; len];
-        expected.emit(&mut buf);
+        let mut buf = Vec::new();
+        expected.emit(&mut buf).unwrap();
+        assert_eq!(buf.len(), size_of::<i32>() + expected.extended_ack.len());
 
         let done_buf = DoneBuffer::new(&buf);
         assert_eq!(done_buf.code(), expected.code);
