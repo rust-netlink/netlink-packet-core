@@ -3,11 +3,14 @@
 use std::fmt::Debug;
 
 use crate::{
+    append_bytes,
+    buffer::NETLINK_HEADER_LEN,
     done::DONE_HEADER_LEN,
+    emit_u16, emit_u32,
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
-    DecodeError, DoneBuffer, DoneMessage, Emitable, ErrorBuffer, ErrorContext,
-    ErrorMessage, NetlinkBuffer, NetlinkDeserializable, NetlinkHeader,
-    NetlinkPayload, NetlinkSerializable, Parseable,
+    DecodeError, DoneBuffer, DoneMessage, Emitable, EncodeError, ErrorBuffer,
+    ErrorContext, ErrorMessage, NetlinkBuffer, NetlinkDeserializable,
+    NetlinkHeader, NetlinkPayload, NetlinkSerializable, Parseable,
 };
 
 /// Represent a netlink message.
@@ -48,37 +51,13 @@ impl<I> NetlinkMessage<I>
 where
     I: NetlinkSerializable,
 {
-    /// Return the length of this message in bytes
-    pub fn buffer_len(&self) -> usize {
-        <Self as Emitable>::buffer_len(self)
-    }
-
-    /// Serialize this message and write the serialized data into the
-    /// given buffer. `buffer` must big large enough for the whole
-    /// message to fit, otherwise, this method will panic. To know how
-    /// big the serialized message is, call `buffer_len()`.
+    /// Append this message to an existing buffer.
     ///
-    /// # Panic
-    ///
-    /// This method panics if the buffer is not big enough.
-    pub fn serialize(&self, buffer: &mut [u8]) {
-        self.emit(buffer)
-    }
-
-    /// Ensure the header (`NetlinkHeader`) is consistent with the payload
-    /// (`NetlinkPayload`):
-    ///
-    /// - compute the payload length and set the header's length field
-    /// - check the payload type and set the header's message type field
-    ///   accordingly
-    ///
-    /// If you are not 100% sure the header is correct, this method should be
-    /// called before calling [`Emitable::emit()`](trait.Emitable.html#
-    /// tymethod.emit), as it could panic if the header is inconsistent with
-    /// the rest of the message.
-    pub fn finalize(&mut self) {
-        self.header.length = self.buffer_len() as u32;
-        self.header.message_type = self.payload.message_type();
+    /// This is the allocation-free entry point for transports such as
+    /// `netlink-proto`, which append messages directly to their send buffer.
+    /// The header length and message type are computed from the payload.
+    pub fn serialize_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        self.emit_into(out)
     }
 }
 
@@ -135,34 +114,61 @@ impl<I> Emitable for NetlinkMessage<I>
 where
     I: NetlinkSerializable,
 {
-    fn buffer_len(&self) -> usize {
+    fn emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         use self::NetlinkPayload::*;
 
-        let payload_len = match self.payload {
-            Noop => 0,
-            Done(ref msg) => msg.buffer_len(),
-            Overrun(ref bytes) => bytes.len(),
-            Error(ref msg) => msg.buffer_len(),
-            InnerMessage(ref msg) => msg.buffer_len(),
-        };
+        let start = out.len();
+        let message_type = self.payload.message_type();
+        let header_end = start
+            .checked_add(NETLINK_HEADER_LEN)
+            .ok_or_else(|| EncodeError::length_overflow("netlink message"))?;
+        out.resize(header_end, 0);
 
-        self.header.buffer_len() + payload_len
-    }
+        let result = (|| -> Result<(), EncodeError> {
+            match &self.payload {
+                Noop => {}
+                Done(msg) => msg.emit_into(out)?,
+                Overrun(bytes) => append_bytes(out, bytes),
+                Error(msg) => msg.emit_into(out)?,
+                InnerMessage(msg) => msg.emit_into(out)?,
+            }
 
-    fn emit(&self, buffer: &mut [u8]) {
-        use self::NetlinkPayload::*;
+            let total = out.len() - start;
+            if total > u32::MAX as usize {
+                return Err(EncodeError::message_too_long(
+                    total,
+                    u32::MAX as usize,
+                ));
+            }
 
-        self.header.emit(buffer);
+            emit_u32(&mut out[start..start + 4], total as u32)?;
+            emit_u16(&mut out[start + 4..start + 6], message_type)?;
+            emit_u16(&mut out[start + 6..start + 8], self.header.flags)?;
+            emit_u32(
+                &mut out[start + 8..start + 12],
+                self.header.sequence_number,
+            )?;
+            emit_u32(
+                &mut out[start + 12..header_end],
+                self.header.port_number,
+            )?;
+            Ok(())
+        })();
 
-        let buffer =
-            &mut buffer[self.header.buffer_len()..self.header.length as usize];
-        match self.payload {
-            Noop => {}
-            Done(ref msg) => msg.emit(buffer),
-            Overrun(ref bytes) => buffer.copy_from_slice(bytes),
-            Error(ref msg) => msg.emit(buffer),
-            InnerMessage(ref msg) => msg.serialize(buffer),
+        if let Err(error) = result {
+            out.truncate(start);
+            return Err(error);
         }
+        Ok(())
+    }
+}
+
+impl<I> NetlinkSerializable for NetlinkMessage<I>
+where
+    I: NetlinkSerializable,
+{
+    fn message_type(&self) -> u16 {
+        self.payload.message_type()
     }
 }
 
@@ -186,19 +192,17 @@ mod tests {
 
     use std::{convert::Infallible, mem::size_of, num::NonZeroI32};
 
+    fn emit<T: Emitable>(value: &T) -> Vec<u8> {
+        let mut out = Vec::new();
+        value.emit_into(&mut out).unwrap();
+        out
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     struct FakeNetlinkInnerMessage;
 
-    impl NetlinkSerializable for FakeNetlinkInnerMessage {
-        fn message_type(&self) -> u16 {
-            unimplemented!("unused by tests")
-        }
-
-        fn buffer_len(&self) -> usize {
-            unimplemented!("unused by tests")
-        }
-
-        fn serialize(&self, _buffer: &mut [u8]) {
+    impl Emitable for FakeNetlinkInnerMessage {
+        fn emit_into(&self, _out: &mut Vec<u8>) -> Result<(), EncodeError> {
             unimplemented!("unused by tests")
         }
     }
@@ -214,6 +218,12 @@ mod tests {
         }
     }
 
+    impl NetlinkSerializable for FakeNetlinkInnerMessage {
+        fn message_type(&self) -> u16 {
+            unimplemented!("unused by tests")
+        }
+    }
+
     #[test]
     fn test_done() {
         let header = NetlinkHeader::default();
@@ -225,25 +235,64 @@ mod tests {
             header,
             NetlinkPayload::<FakeNetlinkInnerMessage>::Done(done_msg.clone()),
         );
-        want.finalize();
 
-        let len = want.buffer_len();
+        let buf = emit(&want);
         assert_eq!(
-            len,
-            header.buffer_len()
-                + size_of::<i32>()
-                + done_msg.extended_ack.len()
+            buf.len(),
+            NETLINK_HEADER_LEN + size_of::<i32>() + done_msg.extended_ack.len()
         );
 
-        let mut buf = vec![1; len];
-        want.emit(&mut buf);
-
-        let done_buf = DoneBuffer::new(&buf[header.buffer_len()..]);
+        let done_buf = DoneBuffer::new(&buf[NETLINK_HEADER_LEN..]);
         assert_eq!(done_buf.code(), done_msg.code);
         assert_eq!(done_buf.extended_ack(), &done_msg.extended_ack);
 
         let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        want.header.length = buf.len() as u32;
+        want.header.message_type = NLMSG_DONE;
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn emit_computes_header() {
+        let header = NetlinkHeader {
+            length: 1234,
+            message_type: 5678,
+            flags: 0x0001,
+            sequence_number: 42,
+            port_number: 7,
+        };
+        let msg = NetlinkMessage::<FakeNetlinkInnerMessage>::new(
+            header,
+            NetlinkPayload::Noop,
+        );
+
+        let buf = emit(&msg);
+        let parsed =
+            NetlinkHeader::parse(&NetlinkBuffer::new_checked(&buf).unwrap())
+                .unwrap();
+        assert_eq!(parsed.length, NETLINK_HEADER_LEN as u32);
+        assert_eq!(parsed.message_type, NLMSG_NOOP);
+        assert_eq!(parsed.flags, 0x0001);
+        assert_eq!(parsed.sequence_number, 42);
+        assert_eq!(parsed.port_number, 7);
+    }
+
+    #[test]
+    fn serialize_into_appends_to_existing_buffer() {
+        let header = NetlinkHeader {
+            length: NETLINK_HEADER_LEN as u32,
+            message_type: 1234,
+            ..Default::default()
+        };
+        let msg = NetlinkMessage::<FakeNetlinkInnerMessage>::new(
+            header,
+            NetlinkPayload::Noop,
+        );
+
+        let mut out = vec![0xaa];
+        msg.serialize_into(&mut out).unwrap();
+        assert_eq!(out[0], 0xaa);
+        assert_eq!(&out[1..], emit(&msg));
     }
 
     #[test]
@@ -260,18 +309,16 @@ mod tests {
             header,
             NetlinkPayload::<FakeNetlinkInnerMessage>::Error(error_msg.clone()),
         );
-        want.finalize();
 
-        let len = want.buffer_len();
-        assert_eq!(len, header.buffer_len() + error_msg.buffer_len());
+        let buf = emit(&want);
+        assert_eq!(buf.len(), NETLINK_HEADER_LEN + emit(&error_msg).len());
 
-        let mut buf = vec![1; len];
-        want.emit(&mut buf);
-
-        let error_buf = ErrorBuffer::new(&buf[header.buffer_len()..]);
+        let error_buf = ErrorBuffer::new(&buf[NETLINK_HEADER_LEN..]);
         assert_eq!(error_buf.code(), error_msg.code);
 
         let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        want.header.length = buf.len() as u32;
+        want.header.message_type = NLMSG_ERROR;
         assert_eq!(got, want);
     }
 }

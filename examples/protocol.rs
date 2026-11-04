@@ -3,8 +3,8 @@
 use std::{error::Error, fmt};
 
 use netlink_packet_core::{
-    NetlinkDeserializable, NetlinkHeader, NetlinkMessage, NetlinkPayload,
-    NetlinkSerializable,
+    Emitable, EncodeError, NetlinkDeserializable, NetlinkHeader,
+    NetlinkMessage, NetlinkPayload, NetlinkSerializable,
 };
 
 // PingPongMessage represent the messages for the "ping-pong" netlink
@@ -60,28 +60,24 @@ impl NetlinkDeserializable for PingPongMessage {
     }
 }
 
-// NetlinkSerializable implementation
+// Emitable provides the wire bytes; NetlinkSerializable provides the message
+// type used in the netlink header.
+impl Emitable for PingPongMessage {
+    fn emit_into(&self, buffer: &mut Vec<u8>) -> Result<(), EncodeError> {
+        match self {
+            PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
+                buffer.extend_from_slice(vec);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl NetlinkSerializable for PingPongMessage {
     fn message_type(&self) -> u16 {
         match self {
             PingPongMessage::Ping(_) => PING_MESSAGE,
             PingPongMessage::Pong(_) => PONG_MESSAGE,
-        }
-    }
-
-    fn buffer_len(&self) -> usize {
-        match self {
-            PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
-                vec.len()
-            }
-        }
-    }
-
-    fn serialize(&self, buffer: &mut [u8]) {
-        match self {
-            PingPongMessage::Ping(vec) | PingPongMessage::Pong(vec) => {
-                buffer.copy_from_slice(&vec[..])
-            }
         }
     }
 }
@@ -98,33 +94,25 @@ impl From<PingPongMessage> for NetlinkPayload<PingPongMessage> {
 
 fn main() {
     let ping_pong_message = PingPongMessage::Ping(vec![0, 1, 2, 3]);
-    let mut packet = NetlinkMessage::from(ping_pong_message);
+    let packet = NetlinkMessage::from(ping_pong_message);
 
-    // Before serializing the packet, it is very important to call
-    // finalize() to ensure the header of the message is consistent
-    // with its payload. Otherwise, a panic may occur when calling
-    // `serialize()`
-    packet.finalize();
-
-    // Prepare a buffer to serialize the packet. Note that we never
-    // set explicitely `packet.header.length` above. This was done
-    // automatically when we called `finalize()`
-    let mut buf = vec![0; packet.header.length as usize];
-    // Serialize the packet
-    packet.serialize(&mut buf[..]);
+    // Serialize the packet. The header length and message type are computed
+    // during emission.
+    let mut buf = Vec::new();
+    packet.serialize_into(&mut buf).unwrap();
 
     // Deserialize the packet
     let deserialized_packet =
         NetlinkMessage::<PingPongMessage>::deserialize(&buf)
             .expect("Failed to deserialize message");
 
-    // Normally, the deserialized packet should be exactly the same
-    // than the serialized one.
-    assert_eq!(deserialized_packet, packet);
+    // The serialized header is reconstructed when parsing; the original
+    // in-memory packet header is not modified by serialize_into().
+    assert_eq!(deserialized_packet.payload, packet.payload);
 
     // This should print:
     // NetlinkMessage { header: NetlinkHeader { length: 20, message_type: 18,
     // flags: 0, sequence_number: 0, port_number: 0 }, payload:
     // InnerMessage(Ping([0, 1, 2, 3])) }
-    println!("{packet:?}");
+    println!("{deserialized_packet:?}");
 }
