@@ -28,7 +28,7 @@
 //! for the rtnetlink sub-protocol. It requires
 //! `netlink-packet-route`.
 //!
-//! ```rust
+//! ```rust,ignore
 //! use netlink_packet_core::{
 //!     NetlinkHeader, NetlinkMessage, NetlinkPayload, NLM_F_DUMP, NLM_F_REQUEST,
 //! };
