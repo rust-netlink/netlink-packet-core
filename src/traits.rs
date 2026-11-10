@@ -135,9 +135,10 @@ pub trait Nla {
             })?;
             out.resize(end, 0);
 
+            // NOTE: `nla_total_size(value_len)` returned `Ok` above, which
+            // bounds `value_len` to `NLA_MAX_VALUE_LEN`, so this addition and
+            // the `u16` cast below cannot overflow.
             let nla_len = NLA_HEADER_SIZE + value_len;
-            out[start..start + 2]
-                .copy_from_slice(&(nla_len as u16).to_ne_bytes());
             let kind = self.kind();
             let mut attr_type = kind & NLA_TYPE_MASK;
             if self.is_network_byteorder() {
@@ -146,6 +147,8 @@ pub trait Nla {
             if self.is_nested() {
                 attr_type |= NLA_F_NESTED;
             }
+            out[start..start + 2]
+                .copy_from_slice(&(nla_len as u16).to_ne_bytes());
             out[start + 2..header_end]
                 .copy_from_slice(&attr_type.to_ne_bytes());
             Ok(())
@@ -182,6 +185,17 @@ pub trait Nla {
 
 /// A `Parseable` type can be used to deserialize data from the type `T` for
 /// which it is implemented.
+///
+/// The conventional input types are:
+///
+/// - [`NlaBuffer<'a>`](crate::NlaBuffer): parse one netlink attribute,
+///   including its header. Container attributes expose their children through
+///   [`NlaBuffer::nlas`](crate::NlaBuffer::nlas).
+/// - `[u8]`: parse a raw payload, such as a netlink message body or a value
+///   that is not wrapped in an [`NlaBuffer`](crate::NlaBuffer).
+///
+/// `Vec<T>` also implements `Parseable` for both input types, parsing each
+/// child attribute as `T`. This avoids per-protocol list wrapper types.
 pub trait Parseable<T>
 where
     Self: Sized,

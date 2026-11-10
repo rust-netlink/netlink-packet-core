@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    append_bytes, emit_u16, parse_u16,
-    traits::{Emitable, Nla, Parseable},
+    append_bytes,
+    traits::{Emitable, Nla, Parseable, ParseableParametrized},
     DecodeError, EncodeError,
 };
-use core::ops::Range;
-
-/// Represent a multi-bytes field with a fixed size in a packet
-type Field = Range<usize>;
 
 /// Identify the bits that represent the "nested" flag of a netlink attribute.
 pub const NLA_F_NESTED: u16 = 0x8000;
@@ -44,80 +40,122 @@ pub fn nla_total_size(value_len: usize) -> Result<usize, EncodeError> {
              {NLA_MAX_VALUE_LEN} bytes"
         )));
     }
+    // NOTE: the check above bounds `value_len`, so this addition and the
+    // alignment addition inside `nla_align!` cannot overflow.
     Ok(nla_align!(value_len + NLA_HEADER_SIZE))
 }
 
-const LENGTH: Field = 0..2;
-const TYPE: Field = 2..4;
-#[allow(non_snake_case)]
-fn VALUE(length: usize) -> Field {
-    TYPE.end..TYPE.end + length
-}
-
-// with Copy, NlaBuffer<&'buffer T> can be copied, which turns out to be pretty
-// conveninent. And since it's boils down to copying a reference it's pretty
-// cheap
+/// The on-the-wire NLA header.
+///
+/// Kept private so that the header layout is not part of the public API.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct NlaBuffer<T: AsRef<[u8]>> {
-    buffer: T,
+struct NlaHeader {
+    length: u16,
+    kind: u16,
 }
 
-impl<T: AsRef<[u8]>> NlaBuffer<T> {
-    pub fn new(buffer: T) -> NlaBuffer<T> {
-        NlaBuffer { buffer }
-    }
+/// A zero-copy, validated view of a single netlink attribute.
+///
+/// `NlaBuffer` can only be created through [`NlaBuffer::new`], which parses
+/// and validates the attribute header. As a result, all accessors are
+/// infallible and cannot panic.
+///
+/// # Migration from the old `NlaBuffer<T>`
+///
+/// The type used to own or mutably borrow its storage and offered an
+/// unchecked `new()` plus `new_checked()`. It now borrows `&[u8]`:
+///
+/// ```
+/// use netlink_packet_core::NlaBuffer;
+///
+/// let bytes = [0x05, 0x00, 0x01, 0x00, 0xaa, 0x00, 0x00, 0x00];
+/// // Old: let nla = NlaBuffer::new_checked(&bytes[..]).unwrap();
+/// let nla = NlaBuffer::new(&bytes[..]).unwrap();
+/// assert_eq!(nla.value(), &[0xaa]);
+/// ```
+///
+/// The mutable API (`inner_mut()`, `value_mut()`, `set_kind()`,
+/// `set_length()`, `set_nested_flag()`, `set_network_byte_order_flag()`) was
+/// removed. Build attributes with [`Nla::emit`] instead. `into_inner()` and
+/// `inner()` were also removed: use [`NlaBuffer::value`] for the payload and
+/// the header getters (`length()`, `kind()`, `nested_flag()`,
+/// `network_byte_order_flag()`) for the header. `check_buffer_length()` was
+/// folded into [`NlaBuffer::new`], which is now the fallible constructor.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct NlaBuffer<'a> {
+    header: NlaHeader,
+    value: &'a [u8],
+}
 
-    pub fn new_checked(buffer: T) -> Result<NlaBuffer<T>, DecodeError> {
-        let buffer = Self::new(buffer);
-        buffer.check_buffer_length()?;
-        Ok(buffer)
-    }
-
-    pub fn check_buffer_length(&self) -> Result<(), DecodeError> {
-        let len = self.buffer.as_ref().len();
-        if len < TYPE.end {
-            Err(DecodeError::nla_buffer_too_small(len, TYPE.end))
-        } else if len < self.length() as usize {
-            Err(DecodeError::nla_length_mismatch(
-                len,
-                self.length() as usize,
-            ))
-        } else if (self.length() as usize) < TYPE.end {
-            Err(DecodeError::nla_invalid_length(len, self.length() as usize))
-        } else {
-            Ok(())
+impl<'a> NlaBuffer<'a> {
+    /// Parse and validate a netlink attribute.
+    ///
+    /// The buffer must start with a complete [`NLA_HEADER_SIZE`] byte header.
+    /// It may contain padding after the attribute, and `length()` does not
+    /// include that padding. Any `AsRef<[u8]>` is accepted, such as `&[u8]`,
+    /// `&Vec<u8>`, or a reference to a fixed-size array.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeError`] when:
+    ///
+    /// - the buffer is shorter than [`NLA_HEADER_SIZE`], reported by
+    ///   [`DecodeError::nla_buffer_too_small`];
+    /// - the header's length field is smaller than [`NLA_HEADER_SIZE`],
+    ///   reported by [`DecodeError::nla_invalid_length`];
+    /// - the header's length field is larger than the buffer, reported by
+    ///   [`DecodeError::nla_length_mismatch`].
+    ///
+    /// [`DecodeError::nla_buffer_too_small`]: crate::DecodeError::nla_buffer_too_small
+    /// [`DecodeError::nla_invalid_length`]: crate::DecodeError::nla_invalid_length
+    /// [`DecodeError::nla_length_mismatch`]: crate::DecodeError::nla_length_mismatch
+    pub fn new<T>(buffer: &'a T) -> Result<NlaBuffer<'a>, DecodeError>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        let buffer = buffer.as_ref();
+        let buffer_len = buffer.len();
+        // NOTE: parse the four-byte header with `u16::from_ne_bytes` instead
+        // of a struct-casting crate such as `zerocopy`. After the length
+        // check below, indexing `0..4` cannot panic, so this is already safe
+        // and panic-free. The rest of the rust-netlink crates decode integer
+        // fields from byte slices the same way (see `crate::parsers`), and
+        // keeping netlink-packet-core dependency-free avoids the `zerocopy`
+        // and `zerocopy-derive` build cost for such a tiny header.
+        if buffer_len < NLA_HEADER_SIZE {
+            return Err(DecodeError::nla_buffer_too_small(
+                buffer_len,
+                NLA_HEADER_SIZE,
+            ));
         }
+        let header = NlaHeader {
+            length: u16::from_ne_bytes([buffer[0], buffer[1]]),
+            kind: u16::from_ne_bytes([buffer[2], buffer[3]]),
+        };
+
+        let nla_len = header.length as usize;
+        if nla_len < NLA_HEADER_SIZE {
+            return Err(DecodeError::nla_invalid_length(buffer_len, nla_len));
+        }
+        if nla_len > buffer_len {
+            return Err(DecodeError::nla_length_mismatch(buffer_len, nla_len));
+        }
+
+        let value = &buffer[NLA_HEADER_SIZE..nla_len];
+        Ok(NlaBuffer { header, value })
     }
 
-    /// Consume the buffer, returning the underlying buffer.
-    pub fn into_inner(self) -> T {
-        self.buffer
-    }
-
-    /// Return a reference to the underlying buffer
-    pub fn inner(&mut self) -> &T {
-        &self.buffer
-    }
-
-    /// Return a mutable reference to the underlying buffer
-    pub fn inner_mut(&mut self) -> &mut T {
-        &mut self.buffer
-    }
-
-    /// Return the `type` field
+    /// Return the `type` field, without the flag bits.
     pub fn kind(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        parse_u16(&data[TYPE]).unwrap() & NLA_TYPE_MASK
+        self.header.kind & NLA_TYPE_MASK
     }
 
     pub fn nested_flag(&self) -> bool {
-        let data = self.buffer.as_ref();
-        (parse_u16(&data[TYPE]).unwrap() & NLA_F_NESTED) != 0
+        (self.header.kind & NLA_F_NESTED) != 0
     }
 
     pub fn network_byte_order_flag(&self) -> bool {
-        let data = self.buffer.as_ref();
-        (parse_u16(&data[TYPE]).unwrap() & NLA_F_NET_BYTEORDER) != 0
+        (self.header.kind & NLA_F_NET_BYTEORDER) != 0
     }
 
     /// Return the `length` field. The `length` field corresponds to the length
@@ -125,63 +163,46 @@ impl<T: AsRef<[u8]>> NlaBuffer<T> {
     /// However, it does not account for the potential padding that follows
     /// the value field.
     pub fn length(&self) -> u16 {
-        let data = self.buffer.as_ref();
-        parse_u16(&data[LENGTH]).unwrap()
+        self.header.length
     }
 
-    /// Return the length of the `value` field
-    ///
-    /// # Panic
-    ///
-    /// This panics if the length field value is less than the attribut header
-    /// size.
+    /// Return the length of the `value` field.
     pub fn value_length(&self) -> usize {
-        self.length() as usize - TYPE.end
-    }
-}
-
-impl<T: AsRef<[u8]> + AsMut<[u8]>> NlaBuffer<T> {
-    /// Set the `type` field
-    pub fn set_kind(&mut self, kind: u16) {
-        let data = self.buffer.as_mut();
-        emit_u16(&mut data[TYPE], kind & NLA_TYPE_MASK).unwrap()
+        self.value.len()
     }
 
-    pub fn set_nested_flag(&mut self) {
-        // Do not use `self.kind()` as it masks out the NLA flag bits,
-        // which would clear an already set NLA_F_NET_BYTEORDER.
-        let data = self.buffer.as_mut();
-        let kind = parse_u16(&data[TYPE]).unwrap();
-        emit_u16(&mut data[TYPE], kind | NLA_F_NESTED).unwrap()
-    }
-
-    pub fn set_network_byte_order_flag(&mut self) {
-        // Do not use `self.kind()` as it masks out the NLA flag bits,
-        // which would clear an already set NLA_F_NESTED.
-        let data = self.buffer.as_mut();
-        let kind = parse_u16(&data[TYPE]).unwrap();
-        emit_u16(&mut data[TYPE], kind | NLA_F_NET_BYTEORDER).unwrap()
-    }
-
-    /// Set the `length` field
-    pub fn set_length(&mut self, length: u16) {
-        let data = self.buffer.as_mut();
-        emit_u16(&mut data[LENGTH], length).unwrap()
-    }
-}
-
-impl<'a, T: AsRef<[u8]> + ?Sized> NlaBuffer<&'a T> {
-    /// Return the `value` field
+    /// Return the `value` field.
     pub fn value(&self) -> &'a [u8] {
-        &self.buffer.as_ref()[VALUE(self.value_length())]
+        self.value
     }
-}
 
-impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NlaBuffer<&mut T> {
-    /// Return the `value` field
-    pub fn value_mut(&mut self) -> &mut [u8] {
-        let length = VALUE(self.value_length());
-        &mut self.buffer.as_mut()[length]
+    /// Iterate over the attributes contained in this attribute's value.
+    ///
+    /// This is intended for nested attributes. The [`NLA_F_NESTED`] flag is
+    /// not required because some producers omit it; use
+    /// [`NlaBuffer::nested_flag`] when the caller needs to check it.
+    pub fn nlas(&self) -> NlasIterator<'a> {
+        NlasIterator::new(self.value)
+    }
+
+    /// Parse the child attributes with `f`, skipping children for which `f`
+    /// returns `Ok(None)`.
+    ///
+    /// Use this for nested lists that need filtering, per-kind dispatch, or
+    /// parsing state shared across children: `f` may capture mutable state.
+    /// For plain lists, implement [`Parseable`] for the element type and use
+    /// `Vec<T>` directly.
+    pub fn parse_nlas_with<T, F>(&self, mut f: F) -> Result<Vec<T>, DecodeError>
+    where
+        F: FnMut(NlaBuffer<'a>) -> Result<Option<T>, DecodeError>,
+    {
+        let mut out = Vec::new();
+        for nla in self.nlas() {
+            if let Some(item) = f(nla?)? {
+                out.push(item);
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -213,10 +234,8 @@ impl Nla for DefaultNla {
     }
 }
 
-impl<'buffer, T: AsRef<[u8]> + ?Sized> Parseable<NlaBuffer<&'buffer T>>
-    for DefaultNla
-{
-    fn parse(buf: &NlaBuffer<&'buffer T>) -> Result<Self, DecodeError> {
+impl<'a> Parseable<NlaBuffer<'a>> for DefaultNla {
+    fn parse(buf: &NlaBuffer<'a>) -> Result<Self, DecodeError> {
         let mut kind = buf.kind();
 
         if buf.network_byte_order_flag() {
@@ -265,43 +284,122 @@ pub fn emit_nlas<T: Nla>(nlas: &[T]) -> Result<Vec<u8>, EncodeError> {
 /// An iterator that iteratates over nlas without decoding them. This is useful
 /// when looking for specific nlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NlasIterator<T> {
+pub struct NlasIterator<'a> {
     position: usize,
-    buffer: T,
+    buffer: &'a [u8],
 }
 
-impl<T> NlasIterator<T> {
-    pub fn new(buffer: T) -> Self {
+impl<'a> NlasIterator<'a> {
+    /// Create an iterator over the netlink attributes in `buffer`.
+    ///
+    /// Any `AsRef<[u8]>` is accepted, such as `&[u8]`, `&Vec<u8>`, or a
+    /// reference to a fixed-size array.
+    pub fn new<T>(buffer: &'a T) -> Self
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
         NlasIterator {
             position: 0,
-            buffer,
+            buffer: buffer.as_ref(),
         }
     }
 }
 
-impl<'buffer, T: AsRef<[u8]> + ?Sized + 'buffer> Iterator
-    for NlasIterator<&'buffer T>
-{
-    type Item = Result<NlaBuffer<&'buffer [u8]>, DecodeError>;
+impl<'a> Iterator for NlasIterator<'a> {
+    type Item = Result<NlaBuffer<'a>, DecodeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position >= self.buffer.as_ref().len() {
+        if self.position >= self.buffer.len() {
             return None;
         }
 
-        match NlaBuffer::new_checked(&self.buffer.as_ref()[self.position..]) {
+        // NOTE: the check above ensures `position < buffer.len()`.
+        match NlaBuffer::new(&self.buffer[self.position..]) {
             Ok(nla_buffer) => {
-                self.position += nla_align!(nla_buffer.length() as usize);
+                // NOTE: `length()` is a `u16`, so the addition inside
+                // `nla_align!` cannot overflow `usize`; `saturating_add`
+                // cannot overflow either.
+                self.position = self
+                    .position
+                    .saturating_add(nla_align!(nla_buffer.length() as usize));
                 Some(Ok(nla_buffer))
             }
             Err(e) => {
                 // Make sure next time we call `next()`, we return None. We
                 // don't try to continue iterating after we
                 // failed to return a buffer.
-                self.position = self.buffer.as_ref().len();
+                self.position = self.buffer.len();
                 Some(Err(e))
             }
         }
+    }
+}
+
+/// Parse a `Vec<T>` from a single netlink attribute by parsing each child
+/// attribute as `T`.
+///
+/// This removes the need for per-protocol wrapper structs (such as the old
+/// `VecLinkXdp`) when the nested value is a plain list of attributes.
+impl<'a, T> Parseable<NlaBuffer<'a>> for Vec<T>
+where
+    T: Parseable<NlaBuffer<'a>>,
+{
+    fn parse(buf: &NlaBuffer<'a>) -> Result<Self, DecodeError> {
+        buf.nlas().map(|nla| T::parse(&nla?)).collect()
+    }
+}
+
+/// Parse a `Vec<T>` from a raw payload containing a sequence of netlink
+/// attributes.
+///
+/// This is the raw-payload counterpart of the `NlaBuffer` implementation
+/// above, for message bodies and nested values that are not already wrapped in
+/// an [`NlaBuffer`].
+impl<T> Parseable<[u8]> for Vec<T>
+where
+    T: for<'a> Parseable<NlaBuffer<'a>>,
+{
+    fn parse(buf: &[u8]) -> Result<Self, DecodeError> {
+        NlasIterator::new(buf).map(|nla| T::parse(&nla?)).collect()
+    }
+}
+
+/// Parse a `Vec<T>` from a single netlink attribute, forwarding `param` to
+/// each child attribute.
+///
+/// This removes wrapper types whose only job is to parse a parametrized nested
+/// list (for example the old `VecRouteLwTunnelEncap`).
+impl<'a, T, P> ParseableParametrized<NlaBuffer<'a>, P> for Vec<T>
+where
+    T: ParseableParametrized<NlaBuffer<'a>, P>,
+    P: Clone,
+{
+    fn parse_with_param(
+        buf: &NlaBuffer<'a>,
+        param: P,
+    ) -> Result<Self, DecodeError> {
+        buf.nlas()
+            .map(|nla| T::parse_with_param(&nla?, param.clone()))
+            .collect()
+    }
+}
+
+/// Parse a `Vec<T>` from a raw payload containing a sequence of netlink
+/// attributes, forwarding `param` to each attribute.
+///
+/// This is the raw-payload counterpart of the `NlaBuffer` implementation
+/// above, for message bodies that are not already wrapped in an
+/// [`NlaBuffer`]. It removes the need for manual `Vec<T>` parsing in message
+/// parsers.
+impl<T, P> ParseableParametrized<[u8], P> for Vec<T>
+where
+    T: for<'a> ParseableParametrized<NlaBuffer<'a>, P>,
+    P: Clone,
+{
+    fn parse_with_param(buf: &[u8], param: P) -> Result<Self, DecodeError> {
+        NlasIterator::new(buf)
+            .map(|nla| T::parse_with_param(&nla?, param.clone()))
+            .collect()
     }
 }
 
@@ -317,7 +415,7 @@ mod tests {
         // flag set. IPSET_ATTR_TIMEOUT(3600)
         static TEST_ATTRIBUTE: &[u8] =
             &[0x08, 0x00, 0x06, 0x40, 0x00, 0x00, 0x0e, 0x10];
-        let buffer = NlaBuffer::new(TEST_ATTRIBUTE);
+        let buffer = NlaBuffer::new(TEST_ATTRIBUTE).unwrap();
         let buffer_is_net = buffer.network_byte_order_flag();
         let buffer_is_nest = buffer.nested_flag();
 
@@ -328,7 +426,7 @@ mod tests {
         let attr_is_net = Nla::is_network_byteorder(&nla);
         let attr_is_nest = Nla::is_nested(&nla);
 
-        let emit = NlaBuffer::new(emitted_buffer);
+        let emit = NlaBuffer::new(&emitted_buffer).unwrap();
         let emit_is_net = emit.network_byte_order_flag();
         let emit_is_nest = emit.nested_flag();
 
@@ -349,7 +447,7 @@ mod tests {
         let mut emitted_buffer = Vec::new();
         nla.emit(&mut emitted_buffer).unwrap();
 
-        let emit = NlaBuffer::new(&emitted_buffer);
+        let emit = NlaBuffer::new(&emitted_buffer).unwrap();
         assert_eq!(emit.kind(), 0x0005);
         assert!(emit.nested_flag());
         assert!(emit.network_byte_order_flag());
@@ -363,28 +461,197 @@ mod tests {
     }
 
     #[test]
-    fn set_flags_preserve_each_other() {
-        for set_nested_first in [true, false] {
-            let mut buf = vec![0u8; 8];
-            {
-                let mut nla = NlaBuffer::new(&mut buf);
-                nla.set_kind(0x0005);
-                nla.set_length(8);
-                if set_nested_first {
-                    nla.set_nested_flag();
-                    nla.set_network_byte_order_flag();
+    fn nla_buffer_rejects_too_small_buffer() {
+        assert!(NlaBuffer::new(&[]).is_err());
+        assert!(NlaBuffer::new(&[0u8]).is_err());
+        assert!(NlaBuffer::new(&[0u8; 3]).is_err());
+    }
+
+    #[test]
+    fn nla_buffer_rejects_invalid_length() {
+        // The length field says 3, which is smaller than the header.
+        let mut buffer = [0u8; 4];
+        buffer[..2].copy_from_slice(&3u16.to_ne_bytes());
+        assert!(NlaBuffer::new(&buffer).is_err());
+
+        // The length field says 8 but the buffer is only 4 bytes.
+        let mut buffer = [0u8; 4];
+        buffer[..2].copy_from_slice(&8u16.to_ne_bytes());
+        assert!(NlaBuffer::new(&buffer).is_err());
+    }
+
+    #[test]
+    fn nla_buffer_accepts_padding() {
+        let buffer = [0x05, 0x00, 0x07, 0x00, 0xaa, 0xbb, 0xcc, 0xdd];
+        let nla = NlaBuffer::new(&buffer).unwrap();
+        assert_eq!(nla.length(), 5);
+        assert_eq!(nla.value_length(), 1);
+        assert_eq!(nla.kind(), 7);
+        assert_eq!(nla.value(), &[0xaa]);
+    }
+
+    #[test]
+    fn nla_buffer_accepts_maximum_length() {
+        let mut buffer = vec![0u8; u16::MAX as usize];
+        buffer[..2].copy_from_slice(&u16::MAX.to_ne_bytes());
+        buffer[2..4].copy_from_slice(&0x1234u16.to_ne_bytes());
+
+        let nla = NlaBuffer::new(&buffer).unwrap();
+        assert_eq!(nla.length(), u16::MAX);
+        assert_eq!(nla.value_length(), u16::MAX as usize - NLA_HEADER_SIZE);
+        assert_eq!(nla.value().len(), u16::MAX as usize - NLA_HEADER_SIZE);
+        assert_eq!(nla.kind(), 0x1234);
+    }
+
+    #[test]
+    fn nla_buffer_and_iterator_accept_as_ref() {
+        let buffer = [0x05u8, 0x00, 0x01, 0x00, 0xaa, 0x00, 0x00, 0x00];
+        let vec = buffer.to_vec();
+        let from_array = NlaBuffer::new(&buffer).unwrap();
+        let from_vec = NlaBuffer::new(&vec).unwrap();
+
+        assert_eq!(from_array.value(), from_vec.value());
+        assert_eq!(NlasIterator::new(&buffer).count(), 1);
+        assert_eq!(NlasIterator::new(&vec).count(), 1);
+    }
+
+    #[test]
+    fn nla_buffer_iterates_nested_attributes() {
+        let mut value = Vec::new();
+        DefaultNla::new(1, vec![0xaa]).emit(&mut value).unwrap();
+        DefaultNla::new(2, vec![0xbb, 0xcc])
+            .emit(&mut value)
+            .unwrap();
+
+        let mut parent = Vec::new();
+        DefaultNla::new(NLA_F_NESTED | 9, value)
+            .emit(&mut parent)
+            .unwrap();
+
+        let nla = NlaBuffer::new(&parent).unwrap();
+        assert!(nla.nested_flag());
+
+        let children: Vec<_> = nla.nlas().map(|nla| nla.unwrap()).collect();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].kind(), 1);
+        assert_eq!(children[0].value(), &[0xaa]);
+        assert_eq!(children[1].kind(), 2);
+        assert_eq!(children[1].value(), &[0xbb, 0xcc]);
+    }
+
+    #[test]
+    fn vec_parseable_from_nla_buffer_and_bytes() {
+        let mut value = Vec::new();
+        DefaultNla::new(1, vec![0xaa]).emit(&mut value).unwrap();
+        DefaultNla::new(2, vec![0xbb, 0xcc])
+            .emit(&mut value)
+            .unwrap();
+
+        let mut parent = Vec::new();
+        DefaultNla::new(NLA_F_NESTED | 9, value.clone())
+            .emit(&mut parent)
+            .unwrap();
+
+        let nla = NlaBuffer::new(&parent).unwrap();
+        let from_nla: Vec<DefaultNla> = Parseable::parse(&nla).unwrap();
+        let from_bytes: Vec<DefaultNla> = Parseable::parse(&value[..]).unwrap();
+
+        for parsed in [from_nla, from_bytes] {
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(parsed[0].kind(), 1);
+            assert_eq!(parsed[0].value(), &[0xaa]);
+            assert_eq!(parsed[1].kind(), 2);
+            assert_eq!(parsed[1].value(), &[0xbb, 0xcc]);
+        }
+    }
+
+    #[test]
+    fn parse_nlas_with_filters_and_shares_state() {
+        let mut value = Vec::new();
+        DefaultNla::new(1, vec![0xaa]).emit(&mut value).unwrap();
+        DefaultNla::new(2, vec![0xbb]).emit(&mut value).unwrap();
+
+        let mut parent = Vec::new();
+        DefaultNla::new(NLA_F_NESTED | 9, value)
+            .emit(&mut parent)
+            .unwrap();
+        let nla = NlaBuffer::new(&parent).unwrap();
+
+        let mut seen = 0;
+        let parsed: Vec<DefaultNla> = nla
+            .parse_nlas_with(|child| {
+                seen += 1;
+                if child.kind() == 1 {
+                    Ok(Some(DefaultNla::parse(&child)?))
                 } else {
-                    nla.set_network_byte_order_flag();
-                    nla.set_nested_flag();
+                    Ok(None)
                 }
+            })
+            .unwrap();
+
+        assert_eq!(seen, 2);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].value(), &[0xaa]);
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct ParamNla(u16);
+
+    impl<'a> ParseableParametrized<NlaBuffer<'a>, u16> for ParamNla {
+        fn parse_with_param(
+            _buf: &NlaBuffer<'a>,
+            param: u16,
+        ) -> Result<Self, DecodeError> {
+            Ok(Self(param))
+        }
+    }
+
+    #[test]
+    fn vec_parseable_parametrized_forwards_param() {
+        let mut value = Vec::new();
+        DefaultNla::new(1, vec![0xaa]).emit(&mut value).unwrap();
+        DefaultNla::new(2, vec![0xbb]).emit(&mut value).unwrap();
+
+        let mut parent = Vec::new();
+        DefaultNla::new(NLA_F_NESTED | 9, value.clone())
+            .emit(&mut parent)
+            .unwrap();
+        let nla = NlaBuffer::new(&parent).unwrap();
+
+        let from_nla: Vec<ParamNla> =
+            Vec::parse_with_param(&nla, 7u16).unwrap();
+        let from_bytes: Vec<ParamNla> =
+            Vec::parse_with_param(&value[..], 7u16).unwrap();
+        assert_eq!(from_nla, vec![ParamNla(7), ParamNla(7)]);
+        assert_eq!(from_bytes, from_nla);
+    }
+
+    #[test]
+    fn nla_buffer_accessors_never_panic() {
+        // Exercise every truncation of a valid attribute and a range of
+        // declared lengths. `new` is the only fallible entry point.
+        let mut valid = Vec::new();
+        DefaultNla::new(NLA_F_NESTED | NLA_F_NET_BYTEORDER | 1, vec![1, 2, 3])
+            .emit(&mut valid)
+            .unwrap();
+
+        for len in 0..=valid.len() {
+            if let Ok(nla) = NlaBuffer::new(&valid[..len]) {
+                let _ = nla.length();
+                let _ = nla.value_length();
+                let _ = nla.kind();
+                let _ = nla.nested_flag();
+                let _ = nla.network_byte_order_flag();
+                let _ = nla.value();
             }
-            let nla = NlaBuffer::new(&buf[..]);
-            assert_eq!(nla.kind(), 0x0005);
-            assert!(nla.nested_flag(), "nested first: {set_nested_first}");
-            assert!(
-                nla.network_byte_order_flag(),
-                "nested first: {set_nested_first}"
-            );
+        }
+
+        for declared in 0u16..=16 {
+            let mut buffer = valid.clone();
+            buffer[..2].copy_from_slice(&declared.to_ne_bytes());
+            if let Ok(nla) = NlaBuffer::new(&buffer) {
+                let _ = nla.value();
+            }
         }
     }
 
@@ -455,7 +722,7 @@ mod tests {
     fn emit_nla_uses_flag_overrides() {
         let mut out = Vec::new();
         FlagOverrideNla.emit(&mut out).unwrap();
-        let nla = NlaBuffer::new(out);
+        let nla = NlaBuffer::new(&out).unwrap();
         assert!(nla.nested_flag());
         assert!(nla.network_byte_order_flag());
     }
