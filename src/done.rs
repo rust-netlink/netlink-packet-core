@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    append_bytes, append_i32, emit_i32, parse_i32, DecodeError,
-    DecodeErrorKind, Emitable, EncodeError, ErrorContext, Field, Parseable,
-    Rest,
+    append_bytes, append_i32, parse_i32, DecodeError, DecodeErrorKind,
+    Emitable, EncodeError, ErrorContext, Field, Parseable, Rest,
 };
 
 const CODE: Field = 0..4;
@@ -74,7 +73,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DoneBuffer<T> {
     /// set the error code field
     pub fn set_code(&mut self, value: i32) {
         let data = self.buffer.as_mut();
-        emit_i32(&mut data[CODE], value).unwrap();
+        data[CODE].copy_from_slice(&value.to_ne_bytes());
     }
 }
 

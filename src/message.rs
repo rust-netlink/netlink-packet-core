@@ -6,7 +6,6 @@ use crate::{
     append_bytes,
     buffer::NETLINK_HEADER_LEN,
     done::DONE_HEADER_LEN,
-    emit_u16, emit_u32,
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
     DecodeError, DoneBuffer, DoneMessage, Emitable, EncodeError,
     EncodeErrorKind, ErrorBuffer, ErrorContext, ErrorMessage, NetlinkBuffer,
@@ -159,11 +158,14 @@ where
             ));
         }
 
-        emit_u32(&mut out[start..start + 4], total as u32)?;
-        emit_u16(&mut out[start + 4..start + 6], message_type)?;
-        emit_u16(&mut out[start + 6..start + 8], self.header.flags)?;
-        emit_u32(&mut out[start + 8..start + 12], self.header.sequence_number)?;
-        emit_u32(&mut out[start + 12..header_end], self.header.port_number)?;
+        out[start..start + 4].copy_from_slice(&(total as u32).to_ne_bytes());
+        out[start + 4..start + 6].copy_from_slice(&message_type.to_ne_bytes());
+        out[start + 6..start + 8]
+            .copy_from_slice(&self.header.flags.to_ne_bytes());
+        out[start + 8..start + 12]
+            .copy_from_slice(&self.header.sequence_number.to_ne_bytes());
+        out[start + 12..header_end]
+            .copy_from_slice(&self.header.port_number.to_ne_bytes());
         Ok(())
     }
 }
