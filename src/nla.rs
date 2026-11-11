@@ -280,13 +280,6 @@ impl<T: Nla, const N: usize> Emitable for [T; N] {
     }
 }
 
-/// Emit a collection of netlink attributes into a newly allocated buffer.
-pub fn emit_nlas<T: Nla>(nlas: &[T]) -> Result<Vec<u8>, EncodeError> {
-    let mut out = Vec::new();
-    nlas.emit(&mut out)?;
-    Ok(out)
-}
-
 /// An iterator that iteratates over nlas without decoding them. This is useful
 /// when looking for specific nlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,6 +407,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn emit_all<T: Nla>(nlas: &[T]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for nla in nlas {
+            nla.emit(&mut out).unwrap();
+        }
+        out
+    }
 
     #[test]
     fn network_byteorder() {
@@ -741,7 +742,7 @@ mod tests {
         ];
         let mut buffer = Vec::new();
         nlas.as_slice().emit(&mut buffer).unwrap();
-        assert_eq!(buffer, emit_nlas(&nlas).unwrap());
+        assert_eq!(buffer, emit_all(&nlas));
     }
 
     #[test]
@@ -757,7 +758,7 @@ mod tests {
         let single = [DefaultNla::new(1, vec![1, 2, 3])];
         let mut buffer = Vec::new();
         single.emit(&mut buffer).unwrap();
-        assert_eq!(buffer, emit_nlas(&single).unwrap());
+        assert_eq!(buffer, emit_all(&single));
 
         let multiple = [
             DefaultNla::new(1, vec![1, 2, 3]),
@@ -766,7 +767,7 @@ mod tests {
         ];
         let mut buffer = Vec::new();
         multiple.emit(&mut buffer).unwrap();
-        assert_eq!(buffer, emit_nlas(&multiple).unwrap());
+        assert_eq!(buffer, emit_all(&multiple));
     }
 
     #[test]
@@ -799,7 +800,7 @@ mod tests {
         let mut out = vec![0xaa];
         nla.emit(&mut out).unwrap();
         assert_eq!(out[0], 0xaa);
-        assert_eq!(&out[1..], emit_nlas(std::slice::from_ref(&nla)).unwrap());
+        assert_eq!(&out[1..], emit_all(std::slice::from_ref(&nla)));
 
         let too_large = DefaultNla::new(1, vec![0; NLA_MAX_VALUE_LEN + 1]);
         let mut out = vec![0xaa];
@@ -822,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn emit_nlas_rolls_back_after_later_failure() {
+    fn emit_nla_collection_rolls_back_after_later_failure() {
         let nlas = vec![
             DefaultNla::new(1, vec![1, 2, 3]),
             DefaultNla::new(2, vec![0; NLA_MAX_VALUE_LEN + 1]),
