@@ -240,9 +240,8 @@ pub use self::header::NetlinkHeader;
 pub use self::mac::EthernetProtocol;
 pub use self::message::NetlinkMessage;
 pub use self::nla::{
-    nla_total_size, DefaultNla, NlaBuffer, NlasIterator, NLA_ALIGNTO,
-    NLA_F_NESTED, NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_MAX_VALUE_LEN,
-    NLA_TYPE_MASK,
+    nla_total_size, DefaultNla, NlaBuffer, NlasIterator, NLA_F_NESTED,
+    NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_MAX_VALUE_LEN, NLA_TYPE_MASK,
 };
 pub use self::parsers::{
     append_bytes, append_i32, append_i64, append_u16, append_u16_be,
