@@ -82,6 +82,7 @@ struct NlaHeader {
 /// `network_byte_order_flag()`) for the header. `check_buffer_length()` was
 /// folded into [`NlaBuffer::new`], which is now the fallible constructor.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub struct NlaBuffer<'a> {
     header: NlaHeader,
     value: &'a [u8],
@@ -214,6 +215,7 @@ impl<'a> NlaBuffer<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[non_exhaustive]
 pub struct DefaultNla {
     kind: u16,
     value: Vec<u8>,
@@ -290,6 +292,7 @@ impl<T: Nla, const N: usize> Emitable for [T; N] {
 /// An iterator that iteratates over nlas without decoding them. This is useful
 /// when looking for specific nlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NlasIterator<'a> {
     position: usize,
     buffer: &'a [u8],
