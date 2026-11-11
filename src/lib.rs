@@ -6,7 +6,7 @@
 //! used to carry protocol-dependant messages. That is what the `T`
 //! represent: `T` is the `NetlinkMessage`'s protocol-dependant
 //! message. This can be any type that implements
-//! `NetlinkSerializable` and `NetlinkDeserializable`.
+//! `NetlinkMessagePayload` and `NetlinkDeserializable`.
 //!
 //! For instance, the `netlink-packet-route` crate provides rtnetlink
 //! messages via `netlink_packet_route::RouteNetlinkMessage`, and
@@ -20,7 +20,7 @@
 //! netlink sub-protocol could integrate with `netlink-packet-core`
 //! and would get an asynchronous implementation for free. See the
 //! second example below for such an integration, via the
-//! `NetlinkSerializable` and `NetlinkDeserializable` traits.
+//! `NetlinkMessagePayload` and `NetlinkDeserializable` traits.
 //!
 //! # Example: usage with `netlink-packet-route`
 //!
@@ -114,7 +114,7 @@
 //! ```rust
 //! use netlink_packet_core::{
 //!     Emitable, NetlinkDeserializable, NetlinkHeader, NetlinkMessage,
-//!     NetlinkPayload, NetlinkSerializable,
+//!     NetlinkPayload, NetlinkMessagePayload,
 //! };
 //! use std::error::Error;
 //! use std::fmt;
@@ -169,7 +169,7 @@
 //!     }
 //! }
 //!
-//! // Emitable provides the wire bytes; NetlinkSerializable provides the
+//! // Emitable provides the wire bytes; NetlinkMessagePayload provides the
 //! // message type used in the netlink header.
 //! impl Emitable for PingPongMessage {
 //!     fn emit_value(
@@ -185,7 +185,7 @@
 //!     }
 //! }
 //!
-//! impl NetlinkSerializable for PingPongMessage {
+//! impl NetlinkMessagePayload for PingPongMessage {
 //!     fn message_type(&self) -> u16 {
 //!         match self {
 //!             PingPongMessage::Ping(_) => PING_MESSAGE,
@@ -288,6 +288,6 @@ pub use self::payload::{
     NLMSG_OVERRUN,
 };
 pub use self::traits::{
-    Emitable, NetlinkDeserializable, NetlinkSerializable, Nla, Parseable,
+    Emitable, NetlinkDeserializable, NetlinkMessagePayload, Nla, Parseable,
     ParseableParametrized,
 };

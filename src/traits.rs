@@ -53,11 +53,23 @@ pub trait Emitable {
     }
 }
 
-/// A top-level netlink message payload.
+/// A type that can be the inner payload of a [`NetlinkMessage`].
 ///
 /// This provides the message type needed for the netlink header in addition to
-/// the fallible byte emission from [`Emitable`].
-pub trait NetlinkSerializable: Emitable {
+/// the fallible byte emission from [`Emitable`]. Byte serialization itself is
+/// handled by [`Emitable`]; this trait only supplies the netlink envelope
+/// metadata.
+///
+/// The special payloads [`Noop`](crate::NetlinkPayload::Noop),
+/// [`Done`](crate::NetlinkPayload::Done),
+/// [`Error`](crate::NetlinkPayload::Error), and
+/// [`Overrun`](crate::NetlinkPayload::Overrun) do not use this trait for their
+/// message type;
+/// [`NetlinkPayload::message_type`](crate::NetlinkPayload::message_type)
+/// returns their reserved message types directly.
+///
+/// [`NetlinkMessage`]: crate::NetlinkMessage
+pub trait NetlinkMessagePayload: Emitable {
     /// Return the netlink message type of this payload.
     fn message_type(&self) -> u16;
 }

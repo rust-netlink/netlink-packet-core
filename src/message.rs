@@ -10,8 +10,8 @@ use crate::{
     payload::{NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP, NLMSG_OVERRUN},
     DecodeError, DoneBuffer, DoneMessage, Emitable, EncodeError,
     EncodeErrorKind, ErrorBuffer, ErrorContext, ErrorMessage, NetlinkBuffer,
-    NetlinkDeserializable, NetlinkHeader, NetlinkPayload, NetlinkSerializable,
-    Parseable,
+    NetlinkDeserializable, NetlinkHeader, NetlinkMessagePayload,
+    NetlinkPayload, Parseable,
 };
 
 /// Represent a netlink message.
@@ -105,7 +105,7 @@ where
 
 impl<I> Emitable for NetlinkMessage<I>
 where
-    I: NetlinkSerializable,
+    I: NetlinkMessagePayload,
 {
     fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         use self::NetlinkPayload::*;
@@ -196,7 +196,7 @@ mod tests {
         }
     }
 
-    impl NetlinkSerializable for FakeNetlinkInnerMessage {
+    impl NetlinkMessagePayload for FakeNetlinkInnerMessage {
         fn message_type(&self) -> u16 {
             unimplemented!("unused by tests")
         }
@@ -219,7 +219,7 @@ mod tests {
         }
     }
 
-    impl NetlinkSerializable for FailingInnerMessage {
+    impl NetlinkMessagePayload for FailingInnerMessage {
         fn message_type(&self) -> u16 {
             TEST_MESSAGE_TYPE
         }
@@ -236,7 +236,7 @@ mod tests {
         }
     }
 
-    impl NetlinkSerializable for TruncatingInnerMessage {
+    impl NetlinkMessagePayload for TruncatingInnerMessage {
         fn message_type(&self) -> u16 {
             TEST_MESSAGE_TYPE
         }
