@@ -1,4 +1,35 @@
 # Changelog
+## [1.0.0-rc1] - 2026-11-11
+### Breaking changes
+ - Mark NlaBuffer, DefaultNla and NlasIterator as non_exhaustive. (b338362)
+ - API break: Make NLA_ALIGNTO crate-private. (d9a289e)
+ - API break: Remove fixed-buffer emit helpers and unused parsers. (4b55380)
+ - Hide NLMSG_ constants from the public API. (3fcbc25)
+ - API break: Make the decode path fallible and unified. (ac7a40b)
+ - API break: Remove unused `emit_nlas` helper. (3fa06a5)
+ - API break: Rename NetlinkSerializable to NetlinkMessagePayload. (bb4930f)
+ - API break: Make NlaBuffer a validated zero-copy view. (793d669)
+ - API break: Make emission fallible and panic free. (d82caf2)
+ - API break: Hide `NetlinkBuffer::buffer` field. (c2e2d1b)
+ - API break: unexport `nla_align!` macro. (4a368e3)
+
+### New features
+ - Add Emitable implementation for NLA arrays. (723919a)
+
+### Bug fixes
+ - Derive Clone for DecodeError to match EncodeError. (55fcf41)
+ - Document that NetlinkMessage emit ignores the stored header. (7d651b6)
+ - Unify the rollback internals code. (98b6d8b)
+ - example: drop rtnetlink example. (01fc4a6)
+ - Explicitly bind lifetimes for NlaBuffer.value(). Also, expand tests.. (4b49dd4)
+ - LICENSE: fix LICENSE-MIT. (f80753b)
+ - Discard data after first \0 in `parse_string()`. (c2abf83)
+ - Add `NLM_F_BULK` constant. (6a01383)
+ - cosmetic: fix wrong error message content and misplaced doc comment. (3f72236)
+ - Add MSRV CI test and set `rust-version` to 1.77. (d40bb88)
+ - Fix panic in `ErrorMessage::to_io()` with `i32::MIN` error code. (0ebaf81)
+ - Fix NLA flag lost emitting `NLA_F_NESTED` and `NLA_F_NET_BYTEORDER`. (f0ab03b)
+
 ## [0.9.0] - 2026-08-18
 ### Breaking changes
  - Remove `buffer!` macros and `paste` dependency. (aa5e7ed)
