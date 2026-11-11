@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 
 use netlink_packet_core::{
     Emitable, EncodeError, NetlinkDeserializable, NetlinkHeader,
-    NetlinkMessage, NetlinkPayload, NetlinkSerializable,
+    NetlinkMessage, NetlinkMessagePayload, NetlinkPayload,
 };
 
 // PingPongMessage represent the messages for the "ping-pong" netlink
@@ -60,7 +60,7 @@ impl NetlinkDeserializable for PingPongMessage {
     }
 }
 
-// Emitable provides the wire bytes; NetlinkSerializable provides the message
+// Emitable provides the wire bytes; NetlinkMessagePayload provides the message
 // type used in the netlink header.
 impl Emitable for PingPongMessage {
     fn emit_value(&self, buffer: &mut Vec<u8>) -> Result<(), EncodeError> {
@@ -73,7 +73,7 @@ impl Emitable for PingPongMessage {
     }
 }
 
-impl NetlinkSerializable for PingPongMessage {
+impl NetlinkMessagePayload for PingPongMessage {
     fn message_type(&self) -> u16 {
         match self {
             PingPongMessage::Ping(_) => PING_MESSAGE,
