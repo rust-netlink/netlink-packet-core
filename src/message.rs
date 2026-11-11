@@ -17,10 +17,10 @@ use crate::{
 /// Represent a netlink message.
 ///
 /// When this message is emitted (with [`Emitable::emit`]), the netlink
-/// header's `length` and `message_type` fields are computed from `payload`.
-/// The values stored in `header` are ignored and emission leaves the
-/// in-memory header unchanged. Emit a [`NetlinkHeader`] directly instead to
-/// write its fields verbatim.
+/// header written to the output gets its `length` from the number of bytes
+/// emitted and its `message_type` from `self.payload.message_type()`. They are
+/// not taken from `self.header`, which is left unchanged by emission. Emit a
+/// [`NetlinkHeader`] directly instead to write its fields verbatim.
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]
 pub struct NetlinkMessage<I> {
