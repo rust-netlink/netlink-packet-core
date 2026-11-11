@@ -6,6 +6,22 @@ use crate::{
     NLA_TYPE_MASK,
 };
 
+/// Run `emit`, restoring `out` to its original length on error.
+///
+/// This is the single rollback implementation shared by [`Emitable::emit`]
+/// and [`Nla::emit`]. It intentionally does not handle panics.
+fn emit_with_rollback<F>(out: &mut Vec<u8>, emit: F) -> Result<(), EncodeError>
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<(), EncodeError>,
+{
+    let start = out.len();
+    let result = emit(out);
+    if result.is_err() {
+        out.truncate(start);
+    }
+    result
+}
+
 /// A `NetlinkDeserializable` type can be deserialized from a buffer
 pub trait NetlinkDeserializable: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
@@ -38,11 +54,7 @@ pub trait Emitable {
     /// is reported as an [`EncodeErrorKind::Bug`].
     fn emit(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         let start = out.len();
-        let result = self.emit_value(out);
-        if result.is_err() {
-            out.truncate(start);
-            return result;
-        }
+        emit_with_rollback(out, |out| self.emit_value(out))?;
         if out.len() < start {
             return Err(EncodeError::new(
                 EncodeErrorKind::Bug,
@@ -119,12 +131,14 @@ pub trait Nla {
     /// must keep equivalent validation and rollback behavior.
     fn emit(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         let start = out.len();
-        let header_end = start
-            .checked_add(NLA_HEADER_SIZE)
-            .ok_or_else(|| EncodeError::length_overflow("netlink attribute"))?;
-        out.resize(header_end, 0);
 
-        let result = (|| -> Result<(), EncodeError> {
+        emit_with_rollback(out, |out| {
+            let header_end =
+                start.checked_add(NLA_HEADER_SIZE).ok_or_else(|| {
+                    EncodeError::length_overflow("netlink attribute")
+                })?;
+            out.resize(header_end, 0);
+
             self.emit_value(out)?;
 
             let value_len =
@@ -164,12 +178,7 @@ pub trait Nla {
             out[start + 2..header_end]
                 .copy_from_slice(&attr_type.to_ne_bytes());
             Ok(())
-        })();
-
-        if result.is_err() {
-            out.truncate(start);
-        }
-        result
+        })
     }
 
     /// Return whether this attribute should have [`NLA_F_NESTED`] set.
@@ -246,5 +255,27 @@ mod tests {
         let mut out = vec![0xaa];
         let error = ClearingEmitter.emit(&mut out).unwrap_err();
         assert_eq!(error.kind(), EncodeErrorKind::Bug);
+    }
+
+    #[test]
+    fn emit_with_rollback_preserves_existing_prefix() {
+        let mut out = vec![0xaa];
+        let error = emit_with_rollback(&mut out, |out| {
+            out.extend_from_slice(&[1, 2, 3]);
+            Err(EncodeError::new(
+                EncodeErrorKind::InvalidValue,
+                "emission failed",
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), EncodeErrorKind::InvalidValue);
+        assert_eq!(out, vec![0xaa]);
+
+        emit_with_rollback(&mut out, |out| {
+            out.push(0xbb);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out, vec![0xaa, 0xbb]);
     }
 }
