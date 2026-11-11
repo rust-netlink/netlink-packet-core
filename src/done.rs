@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    append_bytes, append_i32, emit_i32, parse_i32, DecodeError, Emitable,
-    EncodeError, ErrorContext, Field, Parseable, Rest,
+    append_bytes, append_i32, emit_i32, parse_i32, DecodeError,
+    DecodeErrorKind, Emitable, EncodeError, ErrorContext, Field, Parseable,
+    Rest,
 };
 
 const CODE: Field = 0..4;
@@ -16,17 +17,15 @@ pub struct DoneBuffer<T> {
 }
 
 impl<T: AsRef<[u8]>> DoneBuffer<T> {
-    pub fn new(buffer: T) -> DoneBuffer<T> {
-        DoneBuffer { buffer }
-    }
-
     /// Consume the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
     }
 
-    pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
-        let packet = Self::new(buffer);
+    /// Check that the buffer is large enough to contain a `Done` header and
+    /// create a `DoneBuffer` from it.
+    pub fn new(buffer: T) -> Result<Self, DecodeError> {
+        let packet = DoneBuffer { buffer };
         packet
             .check_buffer_length()
             .context("invalid DoneBuffer length")?;
@@ -36,11 +35,13 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
     fn check_buffer_length(&self) -> Result<(), DecodeError> {
         let len = self.buffer.as_ref().len();
         if len < DONE_HEADER_LEN {
-            Err(format!(
-                "invalid DoneBuffer: length is {len} but DoneBuffer are at \
-                 least {DONE_HEADER_LEN} bytes"
-            )
-            .into())
+            Err(DecodeError::new(
+                DecodeErrorKind::BufferTooSmall,
+                format!(
+                    "invalid DoneBuffer: length is {len} but DoneBuffer are \
+                     at least {DONE_HEADER_LEN} bytes"
+                ),
+            ))
         } else {
             Ok(())
         }
@@ -110,6 +111,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn new_reports_decode_error_kind() {
+        let err = DoneBuffer::new(vec![0; DONE_HEADER_LEN - 1]).unwrap_err();
+        assert_eq!(err.kind(), crate::DecodeErrorKind::BufferTooSmall);
+    }
+
+    #[test]
     fn serialize_and_parse() {
         let expected = DoneMessage {
             code: 5,
@@ -120,7 +127,7 @@ mod tests {
         expected.emit(&mut buf).unwrap();
         assert_eq!(buf.len(), size_of::<i32>() + expected.extended_ack.len());
 
-        let done_buf = DoneBuffer::new(&buf);
+        let done_buf = DoneBuffer::new(&buf).unwrap();
         assert_eq!(done_buf.code(), expected.code);
         assert_eq!(done_buf.extended_ack(), &expected.extended_ack);
 

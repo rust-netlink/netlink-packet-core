@@ -22,15 +22,21 @@ where
     result
 }
 
-/// A `NetlinkDeserializable` type can be deserialized from a buffer
+/// A `NetlinkDeserializable` type can be deserialized from a netlink message
+/// header and payload.
+///
+/// Implementations should return [`DecodeError`] and add context with
+/// [`ErrorContext`](crate::ErrorContext) where useful. [`NetlinkMessage`]
+/// already adds the message-type context, so implementations should not
+/// duplicate it.
+///
+/// [`NetlinkMessage`]: crate::NetlinkMessage
 pub trait NetlinkDeserializable: Sized {
-    type Error: std::error::Error + Send + Sync + 'static;
-
     /// Deserialize the given buffer into `Self`.
     fn deserialize(
         header: &NetlinkHeader,
         payload: &[u8],
-    ) -> Result<Self, Self::Error>;
+    ) -> Result<Self, DecodeError>;
 }
 
 /// A type that can be serialized into netlink wire bytes.

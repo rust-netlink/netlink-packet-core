@@ -181,7 +181,14 @@ impl<'a> NlaBuffer<'a> {
     /// This is intended for nested attributes. The [`NLA_F_NESTED`] flag is
     /// not required because some producers omit it; use
     /// [`NlaBuffer::nested_flag`] when the caller needs to check it.
-    pub fn nlas(&self) -> NlasIterator<'a> {
+    ///
+    /// The attribute list is validated once up front, so the iterator yields
+    /// `NlaBuffer` values directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeError`] when any child attribute is malformed.
+    pub fn nlas(&self) -> Result<NlasIterator<'a>, DecodeError> {
         NlasIterator::new(self.value)
     }
 
@@ -197,8 +204,8 @@ impl<'a> NlaBuffer<'a> {
         F: FnMut(NlaBuffer<'a>) -> Result<Option<T>, DecodeError>,
     {
         let mut out = Vec::new();
-        for nla in self.nlas() {
-            if let Some(item) = f(nla?)? {
+        for nla in self.nlas()? {
+            if let Some(item) = f(nla)? {
                 out.push(item);
             }
         }
@@ -293,44 +300,58 @@ impl<'a> NlasIterator<'a> {
     ///
     /// Any `AsRef<[u8]>` is accepted, such as `&[u8]`, `&Vec<u8>`, or a
     /// reference to a fixed-size array.
-    pub fn new<T>(buffer: &'a T) -> Self
+    ///
+    /// The whole attribute list is validated here, so iteration cannot fail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeError`] when any attribute is malformed.
+    pub fn new<T>(buffer: &'a T) -> Result<Self, DecodeError>
     where
         T: AsRef<[u8]> + ?Sized,
     {
-        NlasIterator {
-            position: 0,
-            buffer: buffer.as_ref(),
+        let buffer = buffer.as_ref();
+
+        // Validate every attribute boundary once. `next()` can then rely on
+        // the same sequence being valid.
+        let mut position = 0;
+        while position < buffer.len() {
+            let nla = NlaBuffer::new(&buffer[position..])?;
+            // NOTE: `length()` is a `u16`, so the addition inside
+            // `nla_align!` cannot overflow `usize`; `saturating_add` cannot
+            // overflow either.
+            position =
+                position.saturating_add(nla_align!(nla.length() as usize));
         }
+
+        Ok(NlasIterator {
+            position: 0,
+            buffer,
+        })
     }
 }
 
 impl<'a> Iterator for NlasIterator<'a> {
-    type Item = Result<NlaBuffer<'a>, DecodeError>;
+    type Item = NlaBuffer<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.position >= self.buffer.len() {
             return None;
         }
 
-        // NOTE: the check above ensures `position < buffer.len()`.
-        match NlaBuffer::new(&self.buffer[self.position..]) {
-            Ok(nla_buffer) => {
-                // NOTE: `length()` is a `u16`, so the addition inside
-                // `nla_align!` cannot overflow `usize`; `saturating_add`
-                // cannot overflow either.
-                self.position = self
-                    .position
-                    .saturating_add(nla_align!(nla_buffer.length() as usize));
-                Some(Ok(nla_buffer))
-            }
-            Err(e) => {
-                // Make sure next time we call `next()`, we return None. We
-                // don't try to continue iterating after we
-                // failed to return a buffer.
+        // `NlasIterator::new` validated the whole list, so this cannot fail.
+        // Return `None` instead of panicking if the invariant is ever broken.
+        let nla = match NlaBuffer::new(&self.buffer[self.position..]) {
+            Ok(nla) => nla,
+            Err(_) => {
                 self.position = self.buffer.len();
-                Some(Err(e))
+                return None;
             }
-        }
+        };
+        self.position = self
+            .position
+            .saturating_add(nla_align!(nla.length() as usize));
+        Some(nla)
     }
 }
 
@@ -344,7 +365,7 @@ where
     T: Parseable<NlaBuffer<'a>>,
 {
     fn parse(buf: &NlaBuffer<'a>) -> Result<Self, DecodeError> {
-        buf.nlas().map(|nla| T::parse(&nla?)).collect()
+        buf.nlas()?.map(|nla| T::parse(&nla)).collect()
     }
 }
 
@@ -359,7 +380,7 @@ where
     T: for<'a> Parseable<NlaBuffer<'a>>,
 {
     fn parse(buf: &[u8]) -> Result<Self, DecodeError> {
-        NlasIterator::new(buf).map(|nla| T::parse(&nla?)).collect()
+        NlasIterator::new(buf)?.map(|nla| T::parse(&nla)).collect()
     }
 }
 
@@ -377,8 +398,8 @@ where
         buf: &NlaBuffer<'a>,
         param: P,
     ) -> Result<Self, DecodeError> {
-        buf.nlas()
-            .map(|nla| T::parse_with_param(&nla?, param.clone()))
+        buf.nlas()?
+            .map(|nla| T::parse_with_param(&nla, param.clone()))
             .collect()
     }
 }
@@ -396,8 +417,8 @@ where
     P: Clone,
 {
     fn parse_with_param(buf: &[u8], param: P) -> Result<Self, DecodeError> {
-        NlasIterator::new(buf)
-            .map(|nla| T::parse_with_param(&nla?, param.clone()))
+        NlasIterator::new(buf)?
+            .map(|nla| T::parse_with_param(&nla, param.clone()))
             .collect()
     }
 }
@@ -518,8 +539,8 @@ mod tests {
         let from_vec = NlaBuffer::new(&vec).unwrap();
 
         assert_eq!(from_array.value(), from_vec.value());
-        assert_eq!(NlasIterator::new(&buffer).count(), 1);
-        assert_eq!(NlasIterator::new(&vec).count(), 1);
+        assert_eq!(NlasIterator::new(&buffer).unwrap().count(), 1);
+        assert_eq!(NlasIterator::new(&vec).unwrap().count(), 1);
     }
 
     #[test]
@@ -538,7 +559,7 @@ mod tests {
         let nla = NlaBuffer::new(&parent).unwrap();
         assert!(nla.nested_flag());
 
-        let children: Vec<_> = nla.nlas().map(|nla| nla.unwrap()).collect();
+        let children: Vec<_> = nla.nlas().unwrap().collect();
         assert_eq!(children.len(), 2);
         assert_eq!(children[0].kind(), 1);
         assert_eq!(children[0].value(), &[0xaa]);
@@ -843,24 +864,24 @@ mod tests {
             0x01, 0x47, 0xda, 0x7a, 0x03, 0x1b, 0x0c, 0x00, 0x02, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x8e, 0x14, 0x56, 0x39,
         ];
-        let mut iter = NlasIterator::new(NESTED_NLAS);
-        // DecodeError does not implement PartialEq, hence
-        // unwrap() and is_none()
-        assert_eq!(iter.next().unwrap().unwrap().value(), &NESTED_NLAS[4..12]);
-        assert_eq!(iter.next().unwrap().unwrap().value(), &NESTED_NLAS[16..]);
+        let mut iter = NlasIterator::new(NESTED_NLAS).unwrap();
+        assert_eq!(iter.next().unwrap().value(), &NESTED_NLAS[4..12]);
+        assert_eq!(iter.next().unwrap().value(), &NESTED_NLAS[16..]);
         assert!(iter.next().is_none());
 
-        // this sholud be an Err()
+        // The whole list is validated up front, so a truncated last
+        // attribute fails at construction.
         let truncated = &NESTED_NLAS[..NESTED_NLAS.len() - 1];
-        assert!(NlasIterator::new(truncated).last().unwrap().is_err());
+        let err = NlasIterator::new(truncated).unwrap_err();
+        assert_eq!(err.kind(), crate::DecodeErrorKind::InvalidLength);
 
         let last = {
             // it should be possible to pass &[u8] through
             // NlasIterator and return one of its output &[u8]s without facing
             // compiler error about lifetimes and returning borrows from
             // something that is limited to this scope
-            let last = NlasIterator::new(NESTED_NLAS).last();
-            last.unwrap().unwrap().value()
+            let last = NlasIterator::new(NESTED_NLAS).unwrap().last();
+            last.unwrap().value()
         };
         assert_eq!(last, &NESTED_NLAS[16..]);
     }

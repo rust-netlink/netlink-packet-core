@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-use std::{error::Error, fmt};
-
 use netlink_packet_core::{
-    Emitable, EncodeError, NetlinkDeserializable, NetlinkHeader,
-    NetlinkMessage, NetlinkMessagePayload, NetlinkPayload,
+    DecodeError, DecodeErrorKind, Emitable, EncodeError, NetlinkDeserializable,
+    NetlinkHeader, NetlinkMessage, NetlinkMessagePayload, NetlinkPayload,
 };
 
 // PingPongMessage represent the messages for the "ping-pong" netlink
@@ -21,39 +19,17 @@ pub enum PingPongMessage {
 pub const PING_MESSAGE: u16 = 18;
 pub const PONG_MESSAGE: u16 = 20;
 
-// A custom error type for when deserialization fails. This is
-// required because `NetlinkDeserializable::Error` must implement
-// `std::error::Error`, so a simple `String` won't cut it.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DeserializeError(&'static str);
-
-impl Error for DeserializeError {
-    fn description(&self) -> &str {
-        self.0
-    }
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-impl fmt::Display for DeserializeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 // NetlinkDeserializable implementation
 impl NetlinkDeserializable for PingPongMessage {
-    type Error = DeserializeError;
-
     fn deserialize(
         header: &NetlinkHeader,
         payload: &[u8],
-    ) -> Result<Self, Self::Error> {
+    ) -> Result<Self, DecodeError> {
         match header.message_type {
             PING_MESSAGE => Ok(PingPongMessage::Ping(payload.to_vec())),
             PONG_MESSAGE => Ok(PingPongMessage::Pong(payload.to_vec())),
-            _ => Err(DeserializeError(
+            _ => Err(DecodeError::new(
+                DecodeErrorKind::InvalidValue,
                 "invalid ping-pong message: invalid message type",
             )),
         }

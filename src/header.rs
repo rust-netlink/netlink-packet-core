@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn repr_parse() {
         let repr = NetlinkHeader::parse(
-            &NetlinkBuffer::new_checked(&IP_LINK_SHOW_PKT[..]).unwrap(),
+            &NetlinkBuffer::new(&IP_LINK_SHOW_PKT[..]).unwrap(),
         )
         .unwrap();
         assert_eq!(repr.length, 40);
