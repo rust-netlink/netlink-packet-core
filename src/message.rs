@@ -46,30 +46,28 @@ impl<I> NetlinkMessage<I>
 where
     I: NetlinkDeserializable,
 {
-    /// Parse the given buffer as a netlink message
-    pub fn deserialize(buffer: &[u8]) -> Result<Self, DecodeError> {
-        let netlink_buffer = NetlinkBuffer::new_checked(&buffer)
-            .context("failed deserializing NetlinkMessage")?;
-        <Self as Parseable<NetlinkBuffer<&&[u8]>>>::parse(&netlink_buffer)
-    }
-}
-
-impl<B, I> Parseable<NetlinkBuffer<&B>> for NetlinkMessage<I>
-where
-    B: AsRef<[u8]>,
-    I: NetlinkDeserializable,
-{
-    fn parse(buf: &NetlinkBuffer<&B>) -> Result<Self, DecodeError> {
+    /// Parse an already validated netlink buffer.
+    ///
+    /// Use this when the caller already validated the buffer, for example to
+    /// determine the datagram length, and wants to avoid validating it a
+    /// second time. [`deserialize`](Self::deserialize) is the byte-slice
+    /// convenience wrapper.
+    pub fn parse_buffer<B>(
+        buffer: &NetlinkBuffer<&B>,
+    ) -> Result<Self, DecodeError>
+    where
+        B: AsRef<[u8]> + ?Sized,
+    {
         use self::NetlinkPayload::*;
 
         let header =
-            <NetlinkHeader as Parseable<NetlinkBuffer<&B>>>::parse(buf)
+            <NetlinkHeader as Parseable<NetlinkBuffer<&B>>>::parse(buffer)
                 .context("failed parsing NetlinkHeader")?;
 
-        let bytes = buf.payload();
+        let bytes = buffer.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
-                let msg = ErrorBuffer::new_checked(&bytes)
+                let msg = ErrorBuffer::new(&bytes)
                     .and_then(|buf| ErrorMessage::parse(&buf))
                     .context("failed parsing NLMSG_ERROR")?;
                 Error(msg)
@@ -78,28 +76,48 @@ where
             NLMSG_DONE => {
                 // Linux kernel allows zero sized of NLMSG_DONE
                 let msg = if bytes.is_empty() {
-                    DoneBuffer::new_checked(&[0u8; DONE_HEADER_LEN])
+                    DoneBuffer::new(&[0u8; DONE_HEADER_LEN])
                         .and_then(|buf| DoneMessage::parse(&buf))
                         .context("failed to parse NLMSG_DONE")?
                 } else {
-                    DoneBuffer::new_checked(&bytes)
+                    DoneBuffer::new(&bytes)
                         .and_then(|buf| DoneMessage::parse(&buf))
                         .context("failed to parse NLMSG_DONE")?
                 };
                 Done(msg)
             }
             NLMSG_OVERRUN => Overrun(bytes.to_vec()),
-            message_type => match I::deserialize(&header, bytes) {
-                Err(e) => {
-                    return Err(format!(
-                        "Failed to parse message with type {message_type}: {e}"
-                    )
-                    .into())
-                }
-                Ok(inner_msg) => InnerMessage(inner_msg),
-            },
+            message_type => InnerMessage(
+                I::deserialize(&header, bytes).with_context(|| {
+                    format!("failed to parse message with type {message_type}")
+                })?,
+            ),
         };
         Ok(NetlinkMessage { header, payload })
+    }
+
+    /// Parse the given buffer as a netlink message.
+    ///
+    /// This validates `buffer` and then calls
+    /// [`parse_buffer`](Self::parse_buffer). Any `AsRef<[u8]>` is accepted,
+    /// such as `&[u8]`, `Vec<u8>`, or a fixed-size array. If you already have
+    /// a validated [`NetlinkBuffer`], call `parse_buffer` directly to avoid
+    /// validating twice.
+    pub fn deserialize(buffer: impl AsRef<[u8]>) -> Result<Self, DecodeError> {
+        let bytes = buffer.as_ref();
+        let netlink_buffer = NetlinkBuffer::new(bytes)
+            .context("failed deserializing NetlinkMessage")?;
+        Self::parse_buffer(&netlink_buffer)
+    }
+}
+
+impl<B, I> Parseable<NetlinkBuffer<&B>> for NetlinkMessage<I>
+where
+    B: AsRef<[u8]> + ?Sized,
+    I: NetlinkDeserializable,
+{
+    fn parse(buf: &NetlinkBuffer<&B>) -> Result<Self, DecodeError> {
+        Self::parse_buffer(buf)
     }
 }
 
@@ -168,7 +186,7 @@ where
 mod tests {
     use super::*;
 
-    use std::{convert::Infallible, mem::size_of, num::NonZeroI32};
+    use std::{mem::size_of, num::NonZeroI32};
 
     fn emit<T: Emitable>(value: &T) -> Vec<u8> {
         let mut out = Vec::new();
@@ -186,12 +204,10 @@ mod tests {
     }
 
     impl NetlinkDeserializable for FakeNetlinkInnerMessage {
-        type Error = Infallible;
-
         fn deserialize(
             _header: &NetlinkHeader,
             _payload: &[u8],
-        ) -> Result<Self, Self::Error> {
+        ) -> Result<Self, DecodeError> {
             unimplemented!("unused by tests")
         }
     }
@@ -205,6 +221,33 @@ mod tests {
     // Arbitrary non-reserved message type. These tests fail before the header
     // is written, so the actual value is never observed.
     const TEST_MESSAGE_TYPE: u16 = 0x1234;
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct FailingDeserializeMessage;
+
+    impl Emitable for FailingDeserializeMessage {
+        fn emit_value(&self, _out: &mut Vec<u8>) -> Result<(), EncodeError> {
+            Ok(())
+        }
+    }
+
+    impl NetlinkMessagePayload for FailingDeserializeMessage {
+        fn message_type(&self) -> u16 {
+            TEST_MESSAGE_TYPE
+        }
+    }
+
+    impl NetlinkDeserializable for FailingDeserializeMessage {
+        fn deserialize(
+            _header: &NetlinkHeader,
+            _payload: &[u8],
+        ) -> Result<Self, DecodeError> {
+            Err(DecodeError::new(
+                crate::DecodeErrorKind::InvalidValue,
+                "boom",
+            ))
+        }
+    }
 
     #[derive(Clone, Debug, Default, PartialEq)]
     struct FailingInnerMessage;
@@ -260,11 +303,12 @@ mod tests {
             NETLINK_HEADER_LEN + size_of::<i32>() + done_msg.extended_ack.len()
         );
 
-        let done_buf = DoneBuffer::new(&buf[NETLINK_HEADER_LEN..]);
+        let done_buf = DoneBuffer::new(&buf[NETLINK_HEADER_LEN..]).unwrap();
         assert_eq!(done_buf.code(), done_msg.code);
         assert_eq!(done_buf.extended_ack(), &done_msg.extended_ack);
 
-        let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        let got =
+            NetlinkMessage::parse(&NetlinkBuffer::new(&buf).unwrap()).unwrap();
         want.header.length = buf.len() as u32;
         want.header.message_type = NLMSG_DONE;
         assert_eq!(got, want);
@@ -286,13 +330,28 @@ mod tests {
 
         let buf = emit(&msg);
         let parsed =
-            NetlinkHeader::parse(&NetlinkBuffer::new_checked(&buf).unwrap())
-                .unwrap();
+            NetlinkHeader::parse(&NetlinkBuffer::new(&buf).unwrap()).unwrap();
         assert_eq!(parsed.length, NETLINK_HEADER_LEN as u32);
         assert_eq!(parsed.message_type, NLMSG_NOOP);
         assert_eq!(parsed.flags, 0x0001);
         assert_eq!(parsed.sequence_number, 42);
         assert_eq!(parsed.port_number, 7);
+    }
+
+    #[test]
+    fn inner_deserialize_error_keeps_kind_and_context() {
+        let msg = NetlinkMessage::<FailingDeserializeMessage>::new(
+            NetlinkHeader::default(),
+            NetlinkPayload::InnerMessage(FailingDeserializeMessage),
+        );
+        let buf = emit(&msg);
+
+        let err = NetlinkMessage::<FailingDeserializeMessage>::deserialize(buf)
+            .unwrap_err();
+        assert_eq!(err.kind(), crate::DecodeErrorKind::InvalidValue);
+        let text = err.to_string();
+        assert!(text.contains("failed to parse message with type"));
+        assert!(text.contains("boom"));
     }
 
     #[test]
@@ -356,10 +415,11 @@ mod tests {
         let buf = emit(&want);
         assert_eq!(buf.len(), NETLINK_HEADER_LEN + emit(&error_msg).len());
 
-        let error_buf = ErrorBuffer::new(&buf[NETLINK_HEADER_LEN..]);
+        let error_buf = ErrorBuffer::new(&buf[NETLINK_HEADER_LEN..]).unwrap();
         assert_eq!(error_buf.code(), error_msg.code);
 
-        let got = NetlinkMessage::parse(&NetlinkBuffer::new(&buf)).unwrap();
+        let got =
+            NetlinkMessage::parse(&NetlinkBuffer::new(&buf).unwrap()).unwrap();
         want.header.length = buf.len() as u32;
         want.header.message_type = NLMSG_ERROR;
         assert_eq!(got, want);

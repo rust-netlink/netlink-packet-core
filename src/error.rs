@@ -26,14 +26,71 @@ pub trait ErrorContext<T: std::fmt::Display> {
     }
 }
 
+/// The category of a [`DecodeError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DecodeErrorKind {
+    /// The input buffer is smaller than the value being decoded.
+    BufferTooSmall,
+    /// A length field is inconsistent with the input buffer.
+    InvalidLength,
+    /// The value is invalid for its protocol or attribute type.
+    InvalidValue,
+    /// The value is not valid UTF-8.
+    InvalidUtf8,
+    /// Please report this bug to the rust-netlink team.
+    Bug,
+}
+
+impl fmt::Display for DecodeErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BufferTooSmall => f.write_str("buffer too small"),
+            Self::InvalidLength => f.write_str("invalid length"),
+            Self::InvalidValue => f.write_str("invalid value"),
+            Self::InvalidUtf8 => f.write_str("invalid utf-8"),
+            Self::Bug => f.write_str("bug"),
+        }
+    }
+}
+
+/// Error returned when decoding a netlink value fails.
+///
+/// This is the fallible counterpart of [`EncodeError`](crate::EncodeError),
+/// used by [`Parseable`](crate::Parseable) and
+/// [`NetlinkDeserializable`](crate::NetlinkDeserializable).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct DecodeError {
+    kind: DecodeErrorKind,
     msg: String,
+}
+
+impl DecodeError {
+    pub fn new(kind: DecodeErrorKind, msg: impl Into<String>) -> Self {
+        Self {
+            kind,
+            msg: msg.into(),
+        }
+    }
+
+    pub fn kind(&self) -> DecodeErrorKind {
+        self.kind
+    }
+
+    pub fn is_buffer_too_small(&self) -> bool {
+        self.kind == DecodeErrorKind::BufferTooSmall
+    }
+
+    pub fn is_invalid_length(&self) -> bool {
+        self.kind == DecodeErrorKind::InvalidLength
+    }
 }
 
 impl<T: std::fmt::Display> ErrorContext<T> for DecodeError {
     fn context(self, msg: T) -> Self {
         Self {
+            kind: self.kind,
             msg: format!("{} caused by {}", msg, self.msg),
         }
     }
@@ -64,29 +121,28 @@ where
 
 impl From<&str> for DecodeError {
     fn from(msg: &str) -> Self {
-        Self {
-            msg: msg.to_string(),
-        }
+        Self::new(DecodeErrorKind::InvalidValue, msg)
     }
 }
 
 impl From<String> for DecodeError {
     fn from(msg: String) -> Self {
-        Self { msg }
+        Self::new(DecodeErrorKind::InvalidValue, msg)
     }
 }
 
 impl From<std::string::FromUtf8Error> for DecodeError {
     fn from(err: std::string::FromUtf8Error) -> Self {
-        Self {
-            msg: format!("Invalid UTF-8 sequence: {}", err),
-        }
+        Self::new(
+            DecodeErrorKind::InvalidUtf8,
+            format!("invalid UTF-8 sequence: {err}"),
+        )
     }
 }
 
 impl std::fmt::Display for DecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.msg)
+        write!(f, "{}: {}", self.kind, self.msg)
     }
 }
 
@@ -232,74 +288,83 @@ impl DecodeError {
         received: usize,
         minimum_length: usize,
     ) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::BufferTooSmall,
+            format!(
                 "Invalid buffer {name}. Expected at least {minimum_length} \
                  bytes, received {received} bytes"
             ),
-        }
+        )
     }
+
     pub fn invalid_mac_address(received: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::InvalidValue,
+            format!(
                 "Invalid MAC address. Expected 6 bytes, received {received} \
                  bytes"
             ),
-        }
+        )
     }
 
     pub fn invalid_ip_address(received: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::InvalidValue,
+            format!(
                 "Invalid IP address. Expected 4 or 16 bytes, received \
                  {received} bytes"
             ),
-        }
+        )
     }
 
     pub fn invalid_number(expected: usize, received: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::InvalidValue,
+            format!(
                 "Invalid number. Expected {expected} bytes, received \
                  {received} bytes"
             ),
-        }
+        )
     }
 
     pub fn nla_buffer_too_small(buffer_len: usize, nla_len: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::BufferTooSmall,
+            format!(
                 "buffer has length {buffer_len}, but an NLA header is \
                  {nla_len} bytes"
             ),
-        }
+        )
     }
 
     pub fn nla_length_mismatch(buffer_len: usize, nla_len: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::InvalidLength,
+            format!(
                 "buffer has length: {buffer_len}, but the NLA is {nla_len} \
                  bytes"
             ),
-        }
+        )
     }
 
     pub fn nla_invalid_length(buffer_len: usize, nla_len: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::InvalidLength,
+            format!(
                 "NLA has invalid length: {nla_len} (should be at least \
                  {NLA_HEADER_SIZE} bytes, buffer is {buffer_len} bytes)"
             ),
-        }
+        )
     }
 
     pub fn buffer_too_small(buffer_len: usize, value_len: usize) -> Self {
-        Self {
-            msg: format!(
+        Self::new(
+            DecodeErrorKind::BufferTooSmall,
+            format!(
                 "Buffer too small: {buffer_len} (should be at least \
                  {value_len} bytes)"
             ),
-        }
+        )
     }
 }
 
@@ -310,17 +375,15 @@ pub struct ErrorBuffer<T> {
 }
 
 impl<T: AsRef<[u8]>> ErrorBuffer<T> {
-    pub fn new(buffer: T) -> ErrorBuffer<T> {
-        ErrorBuffer { buffer }
-    }
-
     /// Consume the packet, returning the underlying buffer.
     pub fn into_inner(self) -> T {
         self.buffer
     }
 
-    pub fn new_checked(buffer: T) -> Result<Self, DecodeError> {
-        let packet = Self::new(buffer);
+    /// Check that the buffer is large enough to contain an error code and
+    /// create an `ErrorBuffer` from it.
+    pub fn new(buffer: T) -> Result<Self, DecodeError> {
+        let packet = ErrorBuffer { buffer };
         packet
             .check_buffer_length()
             .context("invalid ErrorBuffer length")?;
@@ -330,12 +393,13 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
     fn check_buffer_length(&self) -> Result<(), DecodeError> {
         let len = self.buffer.as_ref().len();
         if len < ERROR_HEADER_LEN {
-            Err(DecodeError {
-                msg: format!(
+            Err(DecodeError::new(
+                DecodeErrorKind::BufferTooSmall,
+                format!(
                     "invalid ErrorBuffer: length is {len} but ErrorBuffer are \
                      at least {ERROR_HEADER_LEN} bytes"
                 ),
-            })
+            ))
         } else {
             Ok(())
         }
@@ -412,7 +476,7 @@ impl<T: AsRef<[u8]>> Parseable<ErrorBuffer<&T>> for ErrorMessage {
         // FIXME: The payload of an error is basically a truncated packet, which
         // requires custom logic to parse correctly. For now we just
         // return it as a Vec<u8> let header: NetlinkHeader = {
-        //     NetlinkBuffer::new_checked(self.payload())
+        //     NetlinkBuffer::new(self.payload())
         //         .context("failed to parse netlink header")?
         //         .parse()
         //         .context("failed to parse nelink header")?
@@ -462,6 +526,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn new_reports_decode_error_kind() {
+        let err = ErrorBuffer::new(vec![0; ERROR_HEADER_LEN - 1]).unwrap_err();
+        assert_eq!(err.kind(), crate::DecodeErrorKind::BufferTooSmall);
+    }
+
+    #[test]
     fn encode_error_display_includes_kind() {
         assert_eq!(EncodeErrorKind::TooLarge.to_string(), "value too large");
         assert_eq!(EncodeErrorKind::InvalidValue.to_string(), "invalid value");
@@ -495,7 +565,7 @@ mod tests {
     #[test]
     fn parse_ack() {
         let bytes = vec![0, 0, 0, 0];
-        let msg = ErrorBuffer::new_checked(&bytes)
+        let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(
@@ -513,7 +583,7 @@ mod tests {
         let error_code = NonZeroI32::new(-1234).unwrap();
         let mut bytes = vec![0, 0, 0, 0];
         emit_i32(&mut bytes, error_code.get()).unwrap();
-        let msg = ErrorBuffer::new_checked(&bytes)
+        let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(
@@ -530,7 +600,7 @@ mod tests {
     fn nack_with_min_code_not_panic() {
         let mut bytes = vec![0, 0, 0, 0];
         emit_i32(&mut bytes, i32::MIN).unwrap();
-        let msg = ErrorBuffer::new_checked(&bytes)
+        let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(msg.code, NonZeroI32::new(i32::MIN));
