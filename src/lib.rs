@@ -262,10 +262,7 @@ pub use self::parsers::{
     parse_u16_be, parse_u16_le, parse_u32, parse_u32_be, parse_u32_le,
     parse_u64, parse_u64_be, parse_u64_le, parse_u8,
 };
-pub use self::payload::{
-    NetlinkPayload, NLMSG_ALIGNTO, NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP,
-    NLMSG_OVERRUN,
-};
+pub use self::payload::NetlinkPayload;
 pub use self::traits::{
     Emitable, NetlinkDeserializable, NetlinkMessagePayload, Nla, Parseable,
     ParseableParametrized,

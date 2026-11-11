@@ -5,15 +5,14 @@ use std::fmt::Debug;
 use crate::{DoneMessage, ErrorMessage, NetlinkMessagePayload};
 
 /// The message is ignored.
-pub const NLMSG_NOOP: u16 = 1;
+pub(crate) const NLMSG_NOOP: u16 = 1;
 /// The message signals an error and the payload contains a nlmsgerr structure.
 /// This can be looked at as a NACK and typically it is from FEC to CPC.
-pub const NLMSG_ERROR: u16 = 2;
+pub(crate) const NLMSG_ERROR: u16 = 2;
 /// The message terminates a multipart message.
-pub const NLMSG_DONE: u16 = 3;
+pub(crate) const NLMSG_DONE: u16 = 3;
 /// Data lost.
-pub const NLMSG_OVERRUN: u16 = 4;
-pub const NLMSG_ALIGNTO: u16 = 4;
+pub(crate) const NLMSG_OVERRUN: u16 = 4;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]
