@@ -59,7 +59,7 @@ impl fmt::Display for DecodeErrorKind {
 /// This is the fallible counterpart of [`EncodeError`](crate::EncodeError),
 /// used by [`Parseable`](crate::Parseable) and
 /// [`NetlinkDeserializable`](crate::NetlinkDeserializable).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct DecodeError {
     kind: DecodeErrorKind,
