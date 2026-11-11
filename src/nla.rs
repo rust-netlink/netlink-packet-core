@@ -14,7 +14,7 @@ pub const NLA_F_NET_BYTEORDER: u16 = 0x4000;
 /// Identify the bits that represent the type of a netlink attribute.
 pub const NLA_TYPE_MASK: u16 = !(NLA_F_NET_BYTEORDER | NLA_F_NESTED);
 /// NlA(RTA) align size
-pub const NLA_ALIGNTO: usize = 4;
+const NLA_ALIGNTO: usize = 4;
 /// NlA(RTA) header size. (unsigned short rta_len) + (unsigned short rta_type)
 pub const NLA_HEADER_SIZE: usize = 4;
 /// Maximum length of an attribute value.
@@ -25,7 +25,7 @@ pub const NLA_MAX_VALUE_LEN: usize = u16::MAX as usize - NLA_HEADER_SIZE;
 
 macro_rules! nla_align {
     ($len: expr) => {
-        ($len + $crate::NLA_ALIGNTO - 1) & !($crate::NLA_ALIGNTO - 1)
+        ($len + $crate::nla::NLA_ALIGNTO - 1) & !($crate::nla::NLA_ALIGNTO - 1)
     };
 }
 
