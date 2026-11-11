@@ -274,6 +274,12 @@ impl<T: Nla> Emitable for Vec<T> {
     }
 }
 
+impl<T: Nla, const N: usize> Emitable for [T; N] {
+    fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        <[T] as Emitable>::emit_value(self.as_slice(), out)
+    }
+}
+
 /// Emit a collection of netlink attributes into a newly allocated buffer.
 pub fn emit_nlas<T: Nla>(nlas: &[T]) -> Result<Vec<u8>, EncodeError> {
     let mut out = Vec::new();
@@ -736,6 +742,42 @@ mod tests {
         let mut buffer = Vec::new();
         nlas.as_slice().emit(&mut buffer).unwrap();
         assert_eq!(buffer, emit_nlas(&nlas).unwrap());
+    }
+
+    #[test]
+    fn emit_nla_array() {
+        fn assert_emitable<E: Emitable>(_: &E) {}
+
+        let empty: [DefaultNla; 0] = [];
+        assert_emitable(&empty);
+        let mut buffer = Vec::new();
+        empty.emit(&mut buffer).unwrap();
+        assert!(buffer.is_empty());
+
+        let single = [DefaultNla::new(1, vec![1, 2, 3])];
+        let mut buffer = Vec::new();
+        single.emit(&mut buffer).unwrap();
+        assert_eq!(buffer, emit_nlas(&single).unwrap());
+
+        let multiple = [
+            DefaultNla::new(1, vec![1, 2, 3]),
+            DefaultNla::new(2, vec![]),
+            DefaultNla::new(3, vec![4]),
+        ];
+        let mut buffer = Vec::new();
+        multiple.emit(&mut buffer).unwrap();
+        assert_eq!(buffer, emit_nlas(&multiple).unwrap());
+    }
+
+    #[test]
+    fn emit_nla_array_rolls_back_after_later_failure() {
+        let nlas = [
+            DefaultNla::new(1, vec![1, 2, 3]),
+            DefaultNla::new(2, vec![0; NLA_MAX_VALUE_LEN + 1]),
+        ];
+        let mut buffer = vec![0xaa];
+        assert!(nlas.emit(&mut buffer).is_err());
+        assert_eq!(buffer, vec![0xaa]);
     }
 
     #[test]
