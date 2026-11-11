@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    emit_u16, emit_u32, parse_u16, parse_u32, DecodeError, DecodeErrorKind,
-    ErrorContext, Field, Rest,
+    parse_u16, parse_u32, DecodeError, DecodeErrorKind, ErrorContext, Field,
+    Rest,
 };
 
 const LENGTH: Field = 0..4;
@@ -243,7 +243,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     /// [`new()`](struct.NetlinkBuffer.html#method.new))
     pub fn set_length(&mut self, value: u32) {
         let data = self.buffer.as_mut();
-        emit_u32(&mut data[LENGTH], value).unwrap()
+        data[LENGTH].copy_from_slice(&value.to_ne_bytes())
     }
 
     /// Set the packet header `message_type` field
@@ -254,7 +254,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     /// [`new()`](struct.NetlinkBuffer.html#method.new))
     pub fn set_message_type(&mut self, value: u16) {
         let data = self.buffer.as_mut();
-        emit_u16(&mut data[MESSAGE_TYPE], value).unwrap()
+        data[MESSAGE_TYPE].copy_from_slice(&value.to_ne_bytes())
     }
 
     /// Set the packet header `flags` field
@@ -265,7 +265,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     /// [`new()`](struct.NetlinkBuffer.html#method.new))
     pub fn set_flags(&mut self, value: u16) {
         let data = self.buffer.as_mut();
-        emit_u16(&mut data[FLAGS], value).unwrap()
+        data[FLAGS].copy_from_slice(&value.to_ne_bytes())
     }
 
     /// Set the packet header `sequence_number` field
@@ -276,7 +276,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     /// [`new()`](struct.NetlinkBuffer.html#method.new))
     pub fn set_sequence_number(&mut self, value: u32) {
         let data = self.buffer.as_mut();
-        emit_u32(&mut data[SEQUENCE_NUMBER], value).unwrap()
+        data[SEQUENCE_NUMBER].copy_from_slice(&value.to_ne_bytes())
     }
 
     /// Set the packet header `port_number` field
@@ -287,7 +287,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NetlinkBuffer<T> {
     /// [`new()`](struct.NetlinkBuffer.html#method.new))
     pub fn set_port_number(&mut self, value: u32) {
         let data = self.buffer.as_mut();
-        emit_u32(&mut data[PORT_NUMBER], value).unwrap()
+        data[PORT_NUMBER].copy_from_slice(&value.to_ne_bytes())
     }
 }
 

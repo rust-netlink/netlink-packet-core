@@ -3,8 +3,8 @@
 use std::{fmt, io, num::NonZeroI32};
 
 use crate::{
-    append_bytes, append_i32, emit_i32, parse_i32, Emitable, Field, Parseable,
-    Rest, NLA_HEADER_SIZE,
+    append_bytes, append_i32, parse_i32, Emitable, Field, Parseable, Rest,
+    NLA_HEADER_SIZE,
 };
 
 const CODE: Field = 0..4;
@@ -436,7 +436,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ErrorBuffer<T> {
     /// set the error code field
     pub fn set_code(&mut self, value: i32) {
         let data = self.buffer.as_mut();
-        emit_i32(&mut data[CODE], value).unwrap();
+        data[CODE].copy_from_slice(&value.to_ne_bytes());
     }
 }
 
@@ -582,7 +582,7 @@ mod tests {
     fn parse_nack() {
         let error_code = NonZeroI32::new(-1234).unwrap();
         let mut bytes = vec![0, 0, 0, 0];
-        emit_i32(&mut bytes, error_code.get()).unwrap();
+        bytes.copy_from_slice(&error_code.get().to_ne_bytes());
         let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn nack_with_min_code_not_panic() {
         let mut bytes = vec![0, 0, 0, 0];
-        emit_i32(&mut bytes, i32::MIN).unwrap();
+        bytes.copy_from_slice(&i32::MIN.to_ne_bytes());
         let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
