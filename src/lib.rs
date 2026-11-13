@@ -234,7 +234,7 @@ pub use self::constants::{
 pub use self::done::{DoneBuffer, DoneMessage};
 pub use self::error::{
     DecodeError, DecodeErrorKind, EncodeError, EncodeErrorKind, ErrorBuffer,
-    ErrorContext, ErrorMessage,
+    ErrorContext, ErrorMessage, ExtendedAckAttribute,
 };
 pub use self::header::NetlinkHeader;
 pub use self::mac::EthernetProtocol;
