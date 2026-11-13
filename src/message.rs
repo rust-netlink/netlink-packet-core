@@ -66,7 +66,7 @@ where
         let bytes = buffer.payload();
         let payload = match header.message_type {
             NLMSG_ERROR => {
-                let msg = ErrorBuffer::new(&bytes)
+                let msg = ErrorBuffer::new_with_flags(&bytes, header.flags)
                     .and_then(|buf| ErrorMessage::parse(&buf))
                     .context("failed parsing NLMSG_ERROR")?;
                 Error(msg)
@@ -401,6 +401,110 @@ mod tests {
     }
 
     #[test]
+    fn parse_error_with_extended_ack() {
+        use crate::{ExtendedAckAttribute, NLM_F_ACK_TLVS, NLM_F_CAPPED};
+
+        let attributes =
+            vec![ExtendedAckAttribute::Msg("bad attribute".into())];
+        let mut request = vec![0u8; NETLINK_HEADER_LEN];
+        request[..4]
+            .copy_from_slice(&(NETLINK_HEADER_LEN as u32).to_ne_bytes());
+        let msg = NetlinkMessage::<FakeNetlinkInnerMessage>::new(
+            NetlinkHeader {
+                flags: NLM_F_ACK_TLVS | NLM_F_CAPPED,
+                ..Default::default()
+            },
+            NetlinkPayload::Error(ErrorMessage {
+                code: NonZeroI32::new(-22),
+                header: request,
+                extended_ack: attributes.clone(),
+            }),
+        );
+
+        let buf = emit(&msg);
+        let got = NetlinkMessage::<FakeNetlinkInnerMessage>::deserialize(&buf)
+            .unwrap();
+        match got.payload {
+            NetlinkPayload::Error(error) => {
+                assert_eq!(error.extended_ack, attributes);
+                assert_eq!(error.extended_ack_message(), Some("bad attribute"));
+            }
+            payload => panic!("unexpected payload: {payload:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_real_nlmon_ext_ack_capture() {
+        use crate::{DefaultNla, ExtendedAckAttribute, NLM_F_ACK_TLVS};
+
+        // Captured with nlmon while sending a generic netlink
+        // CTRL_CMD_GETPOLICY request whose CTRL_ATTR_FAMILY_ID attribute had
+        // an invalid length (u32 instead of u16). The kernel replied with
+        // NLMSGERR_ATTR_MSG, NLMSGERR_ATTR_OFFS and NLMSGERR_ATTR_POLICY.
+        #[rustfmt::skip]
+        static PKT: [u8; 124] = [
+            0x7c, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x02,
+            0x2a, 0x00, 0x00, 0x00, 0x97, 0x05, 0x00, 0x00,
+            0xea, 0xff, 0xff, 0xff, 0x1c, 0x00, 0x00, 0x00,
+            0x10, 0x00, 0x05, 0x03, 0x2a, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x0a, 0x01, 0x00, 0x00,
+            0x08, 0x00, 0x01, 0x00, 0x10, 0x00, 0x00, 0x00,
+            0x1d, 0x00, 0x01, 0x00, 0x69, 0x6e, 0x76, 0x61,
+            0x6c, 0x69, 0x64, 0x20, 0x61, 0x74, 0x74, 0x72,
+            0x69, 0x62, 0x75, 0x74, 0x65, 0x20, 0x6c, 0x65,
+            0x6e, 0x67, 0x74, 0x68, 0x00, 0x00, 0x00, 0x00,
+            0x08, 0x00, 0x02, 0x00, 0x14, 0x00, 0x00, 0x00,
+            0x24, 0x00, 0x04, 0x80, 0x0c, 0x00, 0x04, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x0c, 0x00, 0x05, 0x00, 0xff, 0xff, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x01, 0x00,
+            0x03, 0x00, 0x00, 0x00,
+        ];
+
+        let expected_request = vec![
+            0x1c, 0x00, 0x00, 0x00, 0x10, 0x00, 0x05, 0x03, 0x2a, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x01, 0x00, 0x00, 0x08, 0x00,
+            0x01, 0x00, 0x10, 0x00, 0x00, 0x00,
+        ];
+        let expected_ack = vec![
+            ExtendedAckAttribute::Msg("invalid attribute length".into()),
+            ExtendedAckAttribute::Offset(20),
+            ExtendedAckAttribute::Policy(vec![
+                DefaultNla::new(4, vec![0x00; 8]),
+                DefaultNla::new(
+                    5,
+                    vec![0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                ),
+                DefaultNla::new(1, vec![0x03, 0x00, 0x00, 0x00]),
+            ]),
+        ];
+
+        let got = NetlinkMessage::<FakeNetlinkInnerMessage>::deserialize(PKT)
+            .unwrap();
+        assert_eq!(got.header.length, 124);
+        assert_eq!(got.header.message_type, NLMSG_ERROR);
+        assert_eq!(got.header.flags, NLM_F_ACK_TLVS);
+        assert_eq!(got.header.sequence_number, 42);
+        assert_eq!(got.header.port_number, 1431);
+
+        match &got.payload {
+            NetlinkPayload::Error(error) => {
+                assert_eq!(error.code, NonZeroI32::new(-22));
+                assert_eq!(error.header, expected_request);
+                assert_eq!(error.extended_ack, expected_ack);
+                assert_eq!(
+                    error.extended_ack_message(),
+                    Some("invalid attribute length")
+                );
+            }
+            payload => panic!("unexpected payload: {payload:?}"),
+        }
+
+        // Re-emitting the parsed message must reproduce the captured bytes.
+        assert_eq!(emit(&got), PKT);
+    }
+
+    #[test]
     fn test_error() {
         let error_code = NonZeroI32::new(-8765).unwrap();
 
@@ -408,6 +512,7 @@ mod tests {
         let error_msg = ErrorMessage {
             code: Some(error_code),
             header: vec![],
+            extended_ack: vec![],
         };
         let mut want = NetlinkMessage::new(
             header,

@@ -3,13 +3,30 @@
 use std::{fmt, io, num::NonZeroI32};
 
 use crate::{
-    append_bytes, append_i32, parse_i32, Emitable, Field, Parseable, Rest,
-    NLA_HEADER_SIZE,
+    append_bytes, append_i32, append_u32, buffer::NETLINK_HEADER_LEN,
+    parse_i32, parse_string, parse_u32, DefaultNla, Emitable, Field, Nla,
+    NlaBuffer, NlasIterator, Parseable, Rest, NLA_F_NESTED, NLA_HEADER_SIZE,
+    NLM_F_ACK_TLVS, NLM_F_CAPPED,
 };
 
 const CODE: Field = 0..4;
 const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
+
+/// Error message string.
+const NLMSGERR_ATTR_MSG: u16 = 1;
+/// Offset of the invalid attribute in the original message, counting from the
+/// beginning of the header.
+const NLMSGERR_ATTR_OFFS: u16 = 2;
+/// Arbitrary subsystem specific cookie, used to identify a created object or
+/// operation.
+const NLMSGERR_ATTR_COOKIE: u16 = 3;
+/// Policy for a rejected attribute.
+const NLMSGERR_ATTR_POLICY: u16 = 4;
+/// Type of a missing required attribute.
+const NLMSGERR_ATTR_MISS_TYPE: u16 = 5;
+/// Offset of the nest where the required attribute was missing.
+const NLMSGERR_ATTR_MISS_NEST: u16 = 6;
 
 pub trait ErrorContext<T: std::fmt::Display> {
     /// Attach context to an error.
@@ -368,10 +385,102 @@ impl DecodeError {
     }
 }
 
+/// An attribute from the extended ACK trailer of an `NLMSG_ERROR` message.
+///
+/// The kernel appends these attributes when the `NETLINK_EXT_ACK` socket
+/// option is enabled. Attribute types are defined by `enum nlmsgerr_attrs` in
+/// `linux/netlink.h`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[non_exhaustive]
+pub enum ExtendedAckAttribute {
+    /// A human readable error message.
+    Msg(String),
+    /// Offset of the invalid attribute in the original message, counting from
+    /// the beginning of the netlink header.
+    Offset(u32),
+    /// Arbitrary subsystem specific binary cookie.
+    Cookie(Vec<u8>),
+    /// Policy for a rejected attribute.
+    ///
+    /// The policy is a nested attribute; its children are kept as generic
+    /// [`DefaultNla`] values.
+    Policy(Vec<DefaultNla>),
+    /// Type of a missing required attribute.
+    MissingType(u32),
+    /// Offset of the nest where a required attribute was missing.
+    MissingNest(u32),
+    /// An attribute type this crate does not know about.
+    Other(DefaultNla),
+}
+
+impl Nla for ExtendedAckAttribute {
+    fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        match self {
+            Self::Msg(msg) => {
+                append_bytes(out, msg.as_bytes());
+                out.push(0);
+            }
+            Self::Offset(value)
+            | Self::MissingType(value)
+            | Self::MissingNest(value) => append_u32(out, *value),
+            Self::Cookie(cookie) => append_bytes(out, cookie),
+            Self::Policy(nlas) => {
+                for nla in nlas {
+                    nla.emit(out)?;
+                }
+            }
+            Self::Other(nla) => nla.emit_value(out)?,
+        }
+        Ok(())
+    }
+
+    fn kind(&self) -> u16 {
+        match self {
+            Self::Msg(_) => NLMSGERR_ATTR_MSG,
+            Self::Offset(_) => NLMSGERR_ATTR_OFFS,
+            Self::Cookie(_) => NLMSGERR_ATTR_COOKIE,
+            Self::Policy(_) => NLMSGERR_ATTR_POLICY | NLA_F_NESTED,
+            Self::MissingType(_) => NLMSGERR_ATTR_MISS_TYPE,
+            Self::MissingNest(_) => NLMSGERR_ATTR_MISS_NEST,
+            Self::Other(nla) => nla.kind(),
+        }
+    }
+}
+
+impl<'a> Parseable<NlaBuffer<'a>> for ExtendedAckAttribute {
+    fn parse(buf: &NlaBuffer<'a>) -> Result<Self, DecodeError> {
+        Ok(match buf.kind() {
+            NLMSGERR_ATTR_MSG => Self::Msg(
+                parse_string(buf.value())
+                    .context("invalid NLMSGERR_ATTR_MSG value")?,
+            ),
+            NLMSGERR_ATTR_OFFS => Self::Offset(
+                parse_u32(buf.value())
+                    .context("invalid NLMSGERR_ATTR_OFFS value")?,
+            ),
+            NLMSGERR_ATTR_COOKIE => Self::Cookie(buf.value().to_vec()),
+            NLMSGERR_ATTR_POLICY => Self::Policy(
+                Vec::<DefaultNla>::parse(buf)
+                    .context("invalid NLMSGERR_ATTR_POLICY value")?,
+            ),
+            NLMSGERR_ATTR_MISS_TYPE => Self::MissingType(
+                parse_u32(buf.value())
+                    .context("invalid NLMSGERR_ATTR_MISS_TYPE value")?,
+            ),
+            NLMSGERR_ATTR_MISS_NEST => Self::MissingNest(
+                parse_u32(buf.value())
+                    .context("invalid NLMSGERR_ATTR_MISS_NEST value")?,
+            ),
+            _ => Self::Other(DefaultNla::parse(buf)?),
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]
 pub struct ErrorBuffer<T> {
     buffer: T,
+    flags: u16,
 }
 
 impl<T: AsRef<[u8]>> ErrorBuffer<T> {
@@ -382,12 +491,33 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
 
     /// Check that the buffer is large enough to contain an error code and
     /// create an `ErrorBuffer` from it.
+    ///
+    /// The buffer is parsed without knowledge of the netlink header flags, so
+    /// extended ACK attributes cannot be separated from the echoed original
+    /// request. Use [`ErrorBuffer::new_with_flags`] with the flags of the
+    /// enclosing `NLMSG_ERROR` message to parse extended ACKs.
     pub fn new(buffer: T) -> Result<Self, DecodeError> {
-        let packet = ErrorBuffer { buffer };
+        Self::new_with_flags(buffer, 0)
+    }
+
+    /// Create an `ErrorBuffer` from an `NLMSG_ERROR` payload and the flags of
+    /// the enclosing netlink header.
+    ///
+    /// The flags are used to locate the extended ACK attributes: the kernel
+    /// sets [`NLM_F_ACK_TLVS`](crate::NLM_F_ACK_TLVS) when attributes are
+    /// present and [`NLM_F_CAPPED`](crate::NLM_F_CAPPED) when the echoed
+    /// original request was truncated to its header.
+    pub fn new_with_flags(buffer: T, flags: u16) -> Result<Self, DecodeError> {
+        let packet = ErrorBuffer { buffer, flags };
         packet
             .check_buffer_length()
             .context("invalid ErrorBuffer length")?;
         Ok(packet)
+    }
+
+    /// Return the flags of the enclosing netlink header.
+    pub fn flags(&self) -> u16 {
+        self.flags
     }
 
     fn check_buffer_length(&self) -> Result<(), DecodeError> {
@@ -421,6 +551,75 @@ impl<'a, T: AsRef<[u8]> + ?Sized> ErrorBuffer<&'a T> {
     pub fn payload(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[PAYLOAD]
+    }
+
+    /// Return the echoed original request bytes.
+    ///
+    /// When the enclosing message has neither
+    /// [`NLM_F_ACK_TLVS`](crate::NLM_F_ACK_TLVS) nor
+    /// [`NLM_F_CAPPED`](crate::NLM_F_CAPPED) set, this is the whole payload
+    /// after the error code, which keeps the historical behavior.
+    pub fn original_request(&self) -> Result<&'a [u8], DecodeError> {
+        Ok(self.split()?.0)
+    }
+
+    /// Return the extended ACK attribute bytes, or an empty slice when the
+    /// enclosing message has no [`NLM_F_ACK_TLVS`](crate::NLM_F_ACK_TLVS)
+    /// flag.
+    pub fn extended_ack(&self) -> Result<&'a [u8], DecodeError> {
+        Ok(self.split()?.1)
+    }
+
+    fn split(&self) -> Result<(&'a [u8], &'a [u8]), DecodeError> {
+        let payload = self.payload();
+
+        if self.flags & NLM_F_ACK_TLVS == 0 {
+            return Ok((payload, &[]));
+        }
+
+        if payload.len() < NETLINK_HEADER_LEN {
+            return Err(DecodeError::new(
+                DecodeErrorKind::BufferTooSmall,
+                format!(
+                    "extended ACK attributes require an embedded netlink \
+                     header of {NETLINK_HEADER_LEN} bytes, but only {} bytes \
+                     are present",
+                    payload.len()
+                ),
+            ));
+        }
+
+        let original_len = if self.flags & NLM_F_CAPPED != 0 {
+            NETLINK_HEADER_LEN
+        } else {
+            let len = parse_u32(&payload[..4])
+                .context("invalid embedded netlink header length")?
+                as usize;
+            if len < NETLINK_HEADER_LEN {
+                return Err(DecodeError::new(
+                    DecodeErrorKind::InvalidLength,
+                    format!(
+                        "embedded netlink message length is {len}, but it \
+                         must be at least {NETLINK_HEADER_LEN} bytes"
+                    ),
+                ));
+            }
+            // The kernel appends the echoed request padded to NLMSG_ALIGN.
+            len.checked_add(3).map_or(len, |len| len & !3)
+        };
+
+        if original_len > payload.len() {
+            return Err(DecodeError::new(
+                DecodeErrorKind::InvalidLength,
+                format!(
+                    "embedded netlink message is {original_len} bytes, but \
+                     only {} bytes follow the error code",
+                    payload.len()
+                ),
+            ));
+        }
+
+        Ok((&payload[..original_len], &payload[original_len..]))
     }
 }
 
@@ -459,31 +658,37 @@ pub struct ErrorMessage {
     ///
     /// [Netlink message types]: https://kernel.org/doc/html/next/userspace-api/netlink/intro.html#netlink-message-types
     pub code: Option<NonZeroI32>,
-    /// The original request's header.
+    /// The echoed original request, without the extended ACK attributes.
+    ///
+    /// When the enclosing message has neither
+    /// [`NLM_F_ACK_TLVS`](crate::NLM_F_ACK_TLVS) nor
+    /// [`NLM_F_CAPPED`](crate::NLM_F_CAPPED) set, this contains all the bytes
+    /// that follow the error code, as in previous versions.
     pub header: Vec<u8>,
+    /// Extended ACK attributes, if the enclosing message has the
+    /// [`NLM_F_ACK_TLVS`](crate::NLM_F_ACK_TLVS) flag.
+    pub extended_ack: Vec<ExtendedAckAttribute>,
 }
 
 impl Emitable for ErrorMessage {
     fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
         append_i32(out, self.raw_code());
         append_bytes(out, &self.header);
-        Ok(())
+        self.extended_ack.emit(out)
     }
 }
 
 impl<T: AsRef<[u8]>> Parseable<ErrorBuffer<&T>> for ErrorMessage {
     fn parse(buf: &ErrorBuffer<&T>) -> Result<ErrorMessage, DecodeError> {
-        // FIXME: The payload of an error is basically a truncated packet, which
-        // requires custom logic to parse correctly. For now we just
-        // return it as a Vec<u8> let header: NetlinkHeader = {
-        //     NetlinkBuffer::new(self.payload())
-        //         .context("failed to parse netlink header")?
-        //         .parse()
-        //         .context("failed to parse nelink header")?
-        // };
+        let (header, extended_ack) = buf.split()?;
+        let extended_ack = NlasIterator::new(extended_ack)?
+            .map(|nla| ExtendedAckAttribute::parse(&nla))
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to parse extended ACK attributes")?;
         Ok(ErrorMessage {
             code: buf.code(),
-            header: buf.payload().to_vec(),
+            header: header.to_vec(),
+            extended_ack,
         })
     }
 }
@@ -505,11 +710,26 @@ impl ErrorMessage {
         // netlink error code.
         io::Error::from_raw_os_error(self.raw_code().saturating_abs())
     }
+
+    /// Return the human readable message from the extended ACK attributes, if
+    /// the kernel provided one.
+    pub fn extended_ack_message(&self) -> Option<&str> {
+        self.extended_ack
+            .iter()
+            .find_map(|attribute| match attribute {
+                ExtendedAckAttribute::Msg(msg) => Some(msg.as_str()),
+                _ => None,
+            })
+    }
 }
 
 impl fmt::Display for ErrorMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.to_io(), f)
+        fmt::Display::fmt(&self.to_io(), f)?;
+        if let Some(msg) = self.extended_ack_message() {
+            write!(f, ": {msg}")?;
+        }
+        Ok(())
     }
 }
 
@@ -554,6 +774,7 @@ mod tests {
         let err_msg = ErrorMessage {
             code: NonZeroI32::new(-95),
             header: vec![],
+            extended_ack: vec![],
         };
 
         let to_io: io::Error = err_msg.to_io();
@@ -571,7 +792,8 @@ mod tests {
         assert_eq!(
             ErrorMessage {
                 code: None,
-                header: Vec::new()
+                header: Vec::new(),
+                extended_ack: Vec::new(),
             },
             msg
         );
@@ -589,7 +811,8 @@ mod tests {
         assert_eq!(
             ErrorMessage {
                 code: Some(error_code),
-                header: Vec::new()
+                header: Vec::new(),
+                extended_ack: Vec::new(),
             },
             msg
         );
@@ -610,5 +833,183 @@ mod tests {
         assert_eq!(io_err.raw_os_error(), Some(i32::MAX));
         // `Display` goes through `to_io()`, must not panic either.
         assert_eq!(msg.to_string(), io_err.to_string());
+    }
+}
+
+#[cfg(test)]
+mod extended_ack_tests {
+    use super::*;
+    use crate::{append_i32, Emitable, Nla};
+
+    fn embedded_request(payload: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let len = NETLINK_HEADER_LEN + payload.len();
+        out.extend_from_slice(&(len as u32).to_ne_bytes());
+        out.extend_from_slice(&[0u8; 12]);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    fn error_payload(
+        code: i32,
+        request: &[u8],
+        attributes: &[ExtendedAckAttribute],
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        append_i32(&mut out, code);
+        out.extend_from_slice(request);
+        for attribute in attributes {
+            attribute.emit(&mut out).unwrap();
+        }
+        out
+    }
+
+    fn parse<T: AsRef<[u8]>>(
+        payload: &T,
+        flags: u16,
+    ) -> Result<ErrorMessage, DecodeError> {
+        let buf = ErrorBuffer::new_with_flags(payload, flags)?;
+        ErrorMessage::parse(&buf)
+    }
+
+    #[test]
+    fn parse_extended_ack_message() {
+        let request = embedded_request(&[]);
+        let attributes =
+            vec![ExtendedAckAttribute::Msg("invalid argument".into())];
+        let payload = error_payload(-22, &request, &attributes);
+
+        let msg = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap();
+        assert_eq!(msg.code, NonZeroI32::new(-22));
+        assert_eq!(msg.header, request);
+        assert_eq!(msg.extended_ack, attributes);
+        assert_eq!(msg.extended_ack_message(), Some("invalid argument"));
+    }
+
+    #[test]
+    fn parse_offset_and_policy() {
+        let request = embedded_request(&[1, 2, 3, 4]);
+        let policy = vec![DefaultNla::new(1, 42u32.to_ne_bytes().to_vec())];
+        let attributes = vec![
+            ExtendedAckAttribute::Offset(20),
+            ExtendedAckAttribute::Policy(policy),
+        ];
+        let payload = error_payload(-22, &request, &attributes);
+
+        let msg = parse(&payload, NLM_F_ACK_TLVS).unwrap();
+        assert_eq!(msg.header, request);
+        assert_eq!(msg.extended_ack, attributes);
+
+        // The original request is not mistaken for an extended ACK attribute.
+        assert_eq!(msg.extended_ack.len(), 2);
+    }
+
+    #[test]
+    fn non_capped_request_length_is_aligned() {
+        let request = embedded_request(&[1, 2, 3]);
+        let attributes = vec![ExtendedAckAttribute::Msg("oops".into())];
+        let mut payload = Vec::new();
+        append_i32(&mut payload, -22);
+        payload.extend_from_slice(&request);
+        // NLMSG_ALIGN padding after the echoed request.
+        payload.push(0);
+        for attribute in &attributes {
+            attribute.emit(&mut payload).unwrap();
+        }
+
+        let msg = parse(&payload, NLM_F_ACK_TLVS).unwrap();
+        assert_eq!(msg.header, payload[4..24]);
+        assert_eq!(msg.extended_ack, attributes);
+    }
+
+    #[test]
+    fn parse_missing_type_and_nest() {
+        let request = embedded_request(&[]);
+        let attributes = vec![
+            ExtendedAckAttribute::MissingType(7),
+            ExtendedAckAttribute::MissingNest(16),
+        ];
+        let payload = error_payload(-22, &request, &attributes);
+
+        let msg = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap();
+        assert_eq!(msg.extended_ack, attributes);
+    }
+
+    #[test]
+    fn parse_unknown_attribute() {
+        let request = embedded_request(&[]);
+        let attributes = vec![ExtendedAckAttribute::Other(DefaultNla::new(
+            0x1234,
+            vec![9, 9],
+        ))];
+        let payload = error_payload(-22, &request, &attributes);
+
+        let msg = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap();
+        assert_eq!(msg.extended_ack, attributes);
+    }
+
+    #[test]
+    fn malformed_extended_ack_is_an_error() {
+        let mut request = embedded_request(&[]);
+        request[..4]
+            .copy_from_slice(&(NETLINK_HEADER_LEN as u32).to_ne_bytes());
+        let mut payload = Vec::new();
+        append_i32(&mut payload, -22);
+        payload.extend_from_slice(&request);
+        // An attribute header claiming a length smaller than the header.
+        payload.extend_from_slice(&[2, 0, NLMSGERR_ATTR_MSG as u8, 0]);
+
+        let err = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap_err();
+        assert_eq!(err.kind(), DecodeErrorKind::InvalidLength);
+    }
+
+    #[test]
+    fn without_flags_trailer_stays_in_header() {
+        let request = embedded_request(&[]);
+        let attributes =
+            vec![ExtendedAckAttribute::Msg("invalid argument".into())];
+        let payload = error_payload(-22, &request, &attributes);
+
+        let msg = ErrorBuffer::new(&payload)
+            .and_then(|buf| ErrorMessage::parse(&buf))
+            .unwrap();
+        assert_eq!(msg.header, payload[4..]);
+        assert!(msg.extended_ack.is_empty());
+    }
+
+    #[test]
+    fn display_includes_extended_ack_message() {
+        let request = embedded_request(&[]);
+        let attributes =
+            vec![ExtendedAckAttribute::Msg("bad attribute".into())];
+        let payload = error_payload(-22, &request, &attributes);
+        let msg = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap();
+
+        assert_eq!(
+            msg.to_string(),
+            format!("{}: bad attribute", io::Error::from_raw_os_error(22))
+        );
+    }
+
+    #[test]
+    fn emit_round_trip() {
+        let request = embedded_request(&[1, 2, 3, 4]);
+        let attributes = vec![
+            ExtendedAckAttribute::Offset(20),
+            ExtendedAckAttribute::Cookie(vec![0xaa, 0xbb]),
+            ExtendedAckAttribute::Policy(vec![DefaultNla::new(
+                2,
+                vec![1, 2, 3, 4],
+            )]),
+            ExtendedAckAttribute::MissingType(7),
+            ExtendedAckAttribute::MissingNest(16),
+            ExtendedAckAttribute::Msg("oops".into()),
+        ];
+        let payload = error_payload(-22, &request, &attributes);
+        let msg = parse(&payload, NLM_F_ACK_TLVS).unwrap();
+
+        let mut emitted = Vec::new();
+        msg.emit(&mut emitted).unwrap();
+        assert_eq!(emitted, payload);
     }
 }
