@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::{fmt, io, num::NonZeroI32};
+use std::{fmt, io};
 
 use crate::{
     append_bytes, append_i32, append_u32, buffer::NETLINK_HEADER_LEN,
@@ -537,12 +537,10 @@ impl<T: AsRef<[u8]>> ErrorBuffer<T> {
 
     /// Return the error code.
     ///
-    /// Returns `None` when there is no error to report (the message is an ACK),
-    /// or a `Some(e)` if there is a non-zero error code `e` to report (the
-    /// message is a NACK).
-    pub fn code(&self) -> Option<NonZeroI32> {
+    /// Returns `0` for acknowledgements and a negative errno for errors.
+    pub fn code(&self) -> i32 {
         let data = self.buffer.as_ref();
-        NonZeroI32::new(parse_i32(&data[CODE]).unwrap())
+        parse_i32(&data[CODE]).unwrap()
     }
 }
 
@@ -650,14 +648,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ErrorBuffer<T> {
 pub struct ErrorMessage {
     /// The error code.
     ///
-    /// Holds `None` when there is no error to report (the message is an ACK),
-    /// or a `Some(e)` if there is a non-zero error code `e` to report (the
-    /// message is a NACK).
+    /// Holds `0` when there is no error to report (the message is an ACK), or
+    /// a negative errno when there is an error to report (the message is a
+    /// NACK).
     ///
     /// See [Netlink message types] for details.
     ///
     /// [Netlink message types]: https://kernel.org/doc/html/next/userspace-api/netlink/intro.html#netlink-message-types
-    pub code: Option<NonZeroI32>,
+    pub code: i32,
     /// The echoed original request, without the extended ACK attributes.
     ///
     /// When the enclosing message has neither
@@ -672,7 +670,7 @@ pub struct ErrorMessage {
 
 impl Emitable for ErrorMessage {
     fn emit_value(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
-        append_i32(out, self.raw_code());
+        append_i32(out, self.code);
         append_bytes(out, &self.header);
         self.extended_ack.emit(out)
     }
@@ -696,7 +694,7 @@ impl<T: AsRef<[u8]>> Parseable<ErrorBuffer<&T>> for ErrorMessage {
 impl ErrorMessage {
     /// Returns the raw error code.
     pub fn raw_code(&self) -> i32 {
-        self.code.map_or(0, NonZeroI32::get)
+        self.code
     }
 
     /// According to [`netlink(7)`](https://linux.die.net/man/7/netlink)
@@ -772,7 +770,7 @@ mod tests {
     fn into_io_error() {
         let io_err = io::Error::from_raw_os_error(95);
         let err_msg = ErrorMessage {
-            code: NonZeroI32::new(-95),
+            code: -95,
             header: vec![],
             extended_ack: vec![],
         };
@@ -791,7 +789,7 @@ mod tests {
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(
             ErrorMessage {
-                code: None,
+                code: 0,
                 header: Vec::new(),
                 extended_ack: Vec::new(),
             },
@@ -802,21 +800,21 @@ mod tests {
 
     #[test]
     fn parse_nack() {
-        let error_code = NonZeroI32::new(-1234).unwrap();
+        let error_code: i32 = -1234;
         let mut bytes = vec![0, 0, 0, 0];
-        bytes.copy_from_slice(&error_code.get().to_ne_bytes());
+        bytes.copy_from_slice(&error_code.to_ne_bytes());
         let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
         assert_eq!(
             ErrorMessage {
-                code: Some(error_code),
+                code: error_code,
                 header: Vec::new(),
                 extended_ack: Vec::new(),
             },
             msg
         );
-        assert_eq!(msg.raw_code(), error_code.get());
+        assert_eq!(msg.raw_code(), error_code);
     }
 
     #[test]
@@ -826,7 +824,7 @@ mod tests {
         let msg = ErrorBuffer::new(&bytes)
             .and_then(|buf| ErrorMessage::parse(&buf))
             .expect("failed to parse NLMSG_ERROR");
-        assert_eq!(msg.code, NonZeroI32::new(i32::MIN));
+        assert_eq!(msg.code, i32::MIN);
         assert_eq!(msg.raw_code(), i32::MIN);
 
         let io_err = msg.to_io();
@@ -880,7 +878,7 @@ mod extended_ack_tests {
         let payload = error_payload(-22, &request, &attributes);
 
         let msg = parse(&payload, NLM_F_CAPPED | NLM_F_ACK_TLVS).unwrap();
-        assert_eq!(msg.code, NonZeroI32::new(-22));
+        assert_eq!(msg.code, -22);
         assert_eq!(msg.header, request);
         assert_eq!(msg.extended_ack, attributes);
         assert_eq!(msg.extended_ack_message(), Some("invalid argument"));
