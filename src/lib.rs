@@ -214,6 +214,7 @@ pub(crate) type Rest = RangeFrom<usize>;
 
 mod buffer;
 mod constants;
+mod default;
 mod done;
 mod error;
 mod header;
@@ -231,6 +232,7 @@ pub use self::constants::{
     NLM_F_DUMP_INTR, NLM_F_ECHO, NLM_F_EXCL, NLM_F_MATCH, NLM_F_MULTIPART,
     NLM_F_NONREC, NLM_F_REPLACE, NLM_F_REQUEST, NLM_F_ROOT,
 };
+pub use self::default::DefaultMessage;
 pub use self::done::{DoneBuffer, DoneMessage};
 pub use self::error::{
     DecodeError, DecodeErrorKind, EncodeError, EncodeErrorKind, ErrorBuffer,
