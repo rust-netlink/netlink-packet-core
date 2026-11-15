@@ -1,4 +1,14 @@
 # Changelog
+## [1.0.0-rc2] - 2026-11-15
+### Breaking changes
+ - N/A
+
+### New features
+ - Support NETLINK_EXT_ACK attributes. (8a206c9)
+
+### Bug fixes
+ - N/A
+
 ## [1.0.0-rc1] - 2026-11-11
 ### Breaking changes
  - Mark NlaBuffer, DefaultNla and NlasIterator as non_exhaustive. (b338362)
