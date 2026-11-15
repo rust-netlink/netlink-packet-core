@@ -188,7 +188,7 @@ where
 mod tests {
     use super::*;
 
-    use std::{mem::size_of, num::NonZeroI32};
+    use std::mem::size_of;
 
     fn emit<T: Emitable>(value: &T) -> Vec<u8> {
         let mut out = Vec::new();
@@ -459,7 +459,7 @@ mod tests {
                 ..Default::default()
             },
             NetlinkPayload::Error(ErrorMessage {
-                code: NonZeroI32::new(-22),
+                code: -22,
                 header: request,
                 extended_ack: attributes.clone(),
             }),
@@ -533,7 +533,7 @@ mod tests {
 
         match &got.payload {
             NetlinkPayload::Error(error) => {
-                assert_eq!(error.code, NonZeroI32::new(-22));
+                assert_eq!(error.code, -22);
                 assert_eq!(error.header, expected_request);
                 assert_eq!(error.extended_ack, expected_ack);
                 assert_eq!(
@@ -550,11 +550,11 @@ mod tests {
 
     #[test]
     fn test_error() {
-        let error_code = NonZeroI32::new(-8765).unwrap();
+        let error_code = -8765;
 
         let header = NetlinkHeader::default();
         let error_msg = ErrorMessage {
-            code: Some(error_code),
+            code: error_code,
             header: vec![],
             extended_ack: vec![],
         };
