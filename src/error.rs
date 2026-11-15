@@ -14,7 +14,7 @@ const PAYLOAD: Rest = 4..;
 const ERROR_HEADER_LEN: usize = PAYLOAD.start;
 
 /// Error message string.
-const NLMSGERR_ATTR_MSG: u16 = 1;
+pub(crate) const NLMSGERR_ATTR_MSG: u16 = 1;
 /// Offset of the invalid attribute in the original message, counting from the
 /// beginning of the header.
 const NLMSGERR_ATTR_OFFS: u16 = 2;

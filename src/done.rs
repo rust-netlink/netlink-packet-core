@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    append_bytes, append_i32, parse_i32, DecodeError, DecodeErrorKind,
-    Emitable, EncodeError, ErrorContext, Field, Parseable, Rest,
+    append_bytes, append_i32, error::NLMSGERR_ATTR_MSG, parse_i32, DecodeError,
+    DecodeErrorKind, Emitable, EncodeError, ErrorContext, Field, NlasIterator,
+    Parseable, Rest,
 };
 
 const CODE: Field = 0..4;
@@ -55,17 +56,13 @@ impl<T: AsRef<[u8]>> DoneBuffer<T> {
 
 impl<'a, T: AsRef<[u8]> + ?Sized> DoneBuffer<&'a T> {
     /// Return a pointer to the extended ack attributes.
+    ///
+    /// The kernel appends these attributes after the error code when the
+    /// `NETLINK_EXT_ACK` socket option is enabled. Use
+    /// [`DoneMessage::extended_ack_message`] to get the kernel message.
     pub fn extended_ack(&self) -> &'a [u8] {
         let data = self.buffer.as_ref();
         &data[EXTENDED_ACK]
-    }
-}
-
-impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> DoneBuffer<&mut T> {
-    /// Return a mutable pointer to the extended ack attributes.
-    pub fn extended_ack_mut(&mut self) -> &mut [u8] {
-        let data = self.buffer.as_mut();
-        &mut data[EXTENDED_ACK]
     }
 }
 
@@ -81,7 +78,29 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DoneBuffer<T> {
 #[non_exhaustive]
 pub struct DoneMessage {
     pub code: i32,
+    /// Raw extended ACK attributes appended after [`Self::code`].
+    ///
+    /// The kernel only appends attributes when the `NETLINK_EXT_ACK` socket
+    /// option is enabled.
     pub extended_ack: Vec<u8>,
+}
+
+impl DoneMessage {
+    /// Return the human readable message from the extended ACK attributes, if
+    /// the kernel provided one.
+    pub fn extended_ack_message(&self) -> Option<&str> {
+        for attribute in NlasIterator::new(&self.extended_ack).ok()? {
+            if attribute.kind() == NLMSGERR_ATTR_MSG {
+                let value = attribute.value();
+                let end = value
+                    .iter()
+                    .position(|byte| *byte == 0)
+                    .unwrap_or(value.len());
+                return std::str::from_utf8(&value[..end]).ok();
+            }
+        }
+        None
+    }
 }
 
 impl Emitable for DoneMessage {
@@ -132,5 +151,41 @@ mod tests {
 
         let got = DoneMessage::parse(&done_buf).unwrap();
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn parse_real_nlmon_ext_ack_capture() {
+        // Captured with nlmon while sending an RTM_GETLINK dump request with
+        // strict checking enabled and an unsupported ifi_index filter. The
+        // kernel replied with NLMSG_DONE carrying NLMSGERR_ATTR_MSG.
+        #[rustfmt::skip]
+        static PAYLOAD: [u8; 60] = [
+            0xea, 0xff, 0xff, 0xff, 0x38, 0x00, 0x01, 0x00,
+            0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x20, 0x62,
+            0x79, 0x20, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65,
+            0x20, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x20, 0x6e,
+            0x6f, 0x74, 0x20, 0x73, 0x75, 0x70, 0x70, 0x6f,
+            0x72, 0x74, 0x65, 0x64, 0x20, 0x66, 0x6f, 0x72,
+            0x20, 0x6c, 0x69, 0x6e, 0x6b, 0x20, 0x64, 0x75,
+            0x6d, 0x70, 0x73, 0x00,
+        ];
+
+        let buf = DoneBuffer::new(&PAYLOAD).unwrap();
+        assert_eq!(buf.code(), -22);
+        assert_eq!(buf.extended_ack(), &PAYLOAD[4..]);
+
+        let msg = DoneMessage::parse(&buf).unwrap();
+        assert_eq!(msg.code, -22);
+        assert_eq!(msg.extended_ack, PAYLOAD[4..].to_vec());
+        assert_eq!(
+            msg.extended_ack_message(),
+            Some("Filter by device index not supported for link dumps")
+        );
+    }
+
+    #[test]
+    fn extended_ack_message_without_attributes() {
+        let msg = DoneMessage::default();
+        assert_eq!(msg.extended_ack_message(), None);
     }
 }

@@ -317,6 +317,50 @@ mod tests {
     }
 
     #[test]
+    fn parse_real_nlmon_done_ext_ack_capture() {
+        use crate::{NLM_F_ACK_TLVS, NLM_F_MULTIPART};
+
+        // Captured with nlmon while sending an RTM_GETLINK dump request with
+        // strict checking enabled and an unsupported ifi_index filter. The
+        // kernel replied with NLMSG_DONE carrying NLMSGERR_ATTR_MSG.
+        #[rustfmt::skip]
+        static PKT: [u8; 76] = [
+            0x4c, 0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x02,
+            0x34, 0x12, 0x00, 0x00, 0x54, 0x64, 0x00, 0x00,
+            0xea, 0xff, 0xff, 0xff, 0x38, 0x00, 0x01, 0x00,
+            0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x20, 0x62,
+            0x79, 0x20, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65,
+            0x20, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x20, 0x6e,
+            0x6f, 0x74, 0x20, 0x73, 0x75, 0x70, 0x70, 0x6f,
+            0x72, 0x74, 0x65, 0x64, 0x20, 0x66, 0x6f, 0x72,
+            0x20, 0x6c, 0x69, 0x6e, 0x6b, 0x20, 0x64, 0x75,
+            0x6d, 0x70, 0x73, 0x00,
+        ];
+
+        let got = NetlinkMessage::<FakeNetlinkInnerMessage>::deserialize(PKT)
+            .unwrap();
+        assert_eq!(got.header.length, 76);
+        assert_eq!(got.header.message_type, NLMSG_DONE);
+        assert_eq!(got.header.flags, NLM_F_ACK_TLVS | NLM_F_MULTIPART);
+        assert_eq!(got.header.sequence_number, 0x1234);
+        assert_eq!(got.header.port_number, 0x6454);
+
+        match &got.payload {
+            NetlinkPayload::Done(done) => {
+                assert_eq!(done.code, -22);
+                assert_eq!(
+                    done.extended_ack_message(),
+                    Some("Filter by device index not supported for link dumps")
+                );
+            }
+            payload => panic!("unexpected payload: {payload:?}"),
+        }
+
+        // Re-emitting the parsed message must reproduce the captured bytes.
+        assert_eq!(emit(&got), PKT);
+    }
+
+    #[test]
     fn emit_computes_header() {
         let header = NetlinkHeader {
             length: 1234,
